@@ -325,18 +325,44 @@ func hexToASCII(h string) string {
 }
 
 // hexPlainDecode decodes a hashcat plain-text field.
-// Without --hex-plain (our default), hashcat writes passwords as literal
-// plaintext so no decoding is needed. The only special case is the legacy
-// $HEX[...] wrapper that very old hashcat versions emit for non-ASCII chars.
-// We intentionally do NOT attempt raw hex decoding — passwords like "12345678"
-// or "deadbeef" are valid hex strings and would be silently corrupted.
+//
+// Behaviour varies by hashcat version and hash mode:
+//   - $HEX[...] wrapper: always decode (legacy non-ASCII escape)
+//   - Raw even-length all-hex string: try to decode; accept only when every
+//     decoded byte is printable ASCII (0x20–0x7e). This correctly handles
+//     hashcat builds that hex-encode WPA passwords in the outfile without
+//     --hex-plain, while leaving ambiguous plaintexts like "deadbeef" or
+//     "12345678" untouched (their decoded forms contain non-printable bytes).
 func hexPlainDecode(s string) string {
+	// $HEX[...] wrapper (legacy non-ASCII escape, always decode)
 	if strings.HasPrefix(s, "$HEX[") && strings.HasSuffix(s, "]") {
 		if b, err := hex.DecodeString(s[5 : len(s)-1]); err == nil {
 			return string(b)
 		}
 	}
+	// Raw hex: only decode when the result is entirely printable ASCII.
+	// This avoids corrupting genuine plaintexts that happen to be valid hex
+	// strings (e.g. "deadbeef" → 0xde 0xad 0xbe 0xef → non-printable → kept).
+	if len(s) >= 2 && len(s)%2 == 0 {
+		if b, err := hex.DecodeString(s); err == nil && isPrintableASCII(b) {
+			return string(b)
+		}
+	}
 	return s
+}
+
+// isPrintableASCII returns true when every byte in b is a printable ASCII
+// character (space through tilde, 0x20–0x7e).
+func isPrintableASCII(b []byte) bool {
+	if len(b) == 0 {
+		return false
+	}
+	for _, c := range b {
+		if c < 0x20 || c > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 // parseOutfileLine parses a single line from hashcat outfile format 3 (hash:plain).
