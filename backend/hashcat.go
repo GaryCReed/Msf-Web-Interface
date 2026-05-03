@@ -244,12 +244,10 @@ func buildHashcatArgs(req HashcatRequest, outFile string) ([]string, error) {
 		args = append(args, "--show")
 	}
 
-	// --hex-plain: passwords are always written as hex in the outfile, making
-	// parsing unambiguous — plaintext "12345678" and hex string "12345678" are
-	// otherwise indistinguishable, corrupting the displayed password.
-	// Format 3 = hash:hex_plain; we decode in parseOutfileLine / hexPlainDecode.
+	// Format 3 = hash:plain. Passwords are written as literal plaintext by
+	// hashcat when --hex-plain is absent. hexPlainDecode handles only the
+	// legacy $HEX[...] wrapper; it never attempts raw hex decoding.
 	args = append(args,
-		"--hex-plain",
 		"--status", "--status-timer=10",
 		"--outfile", outFile,
 		"--outfile-format", "3",
@@ -326,18 +324,17 @@ func hexToASCII(h string) string {
 	return string(b)
 }
 
-// hexPlainDecode decodes a hashcat plain-text field. With --hex-plain the field
-// is always a raw hex string. It also handles the legacy $HEX[...] wrapper.
+// hexPlainDecode decodes a hashcat plain-text field.
+// Without --hex-plain (our default), hashcat writes passwords as literal
+// plaintext so no decoding is needed. The only special case is the legacy
+// $HEX[...] wrapper that very old hashcat versions emit for non-ASCII chars.
+// We intentionally do NOT attempt raw hex decoding — passwords like "12345678"
+// or "deadbeef" are valid hex strings and would be silently corrupted.
 func hexPlainDecode(s string) string {
-	// $HEX[...] wrapper (older hashcat behaviour)
 	if strings.HasPrefix(s, "$HEX[") && strings.HasSuffix(s, "]") {
 		if b, err := hex.DecodeString(s[5 : len(s)-1]); err == nil {
 			return string(b)
 		}
-	}
-	// Raw hex string (--hex-plain output)
-	if b, err := hex.DecodeString(s); err == nil && len(b) > 0 {
-		return string(b)
 	}
 	return s
 }
