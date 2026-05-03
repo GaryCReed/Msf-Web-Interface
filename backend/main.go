@@ -93,6 +93,11 @@ func main() {
 	// also persists to the database (survives /tmp clears and server restarts).
 	lootDB = db
 
+	// Store captured handshakes next to the binary so they survive reboots.
+	// The directory is created on first run and existing files are restored
+	// into the in-memory registry automatically.
+	initHandshakeDir(filepath.Join(base, "handshakes"))
+
 	// Initialize router
 	router := chi.NewRouter()
 	router.Use(middleware.Logger)

@@ -1926,7 +1926,8 @@ export function HashcatPanel({ sessionId }: { sessionId: number }) {
 
   // Form
   const [hashFile,      setHashFile]      = useState('');
-  const [customHash,    setCustomHash]    = useState('/tmp/msf-handshakes/');
+  const [handshakeDir,  setHandshakeDir]  = useState('');
+  const [customHash,    setCustomHash]    = useState('');
   const [hashType,      setHashType]      = useState(22000);
   const [attackMode,    setAttackMode]    = useState(0);
   const [wordlist,      setWordlist]      = useState('');
@@ -1978,12 +1979,14 @@ export function HashcatPanel({ sessionId }: { sessionId: number }) {
       axios.get(`/api/sessions/${sessionId}/hashcat/handshakes`).catch(() => ({ data: { rules: [] } })),
     ]).then(([uploadRes, hashcatRes]) => {
       const caps: UploadedCap[] = uploadRes.data.files || [];
+      const dir: string = uploadRes.data.dir || '';
       setUploadedCaps(caps);
+      if (dir) setHandshakeDir(dir);
       setRules(hashcatRes.data.rules || []);
       // Auto-select first valid .22000 file
       const valid = caps.find(c => c.status === 'valid' && c.hash_file);
-      if (valid && !hashFile) {
-        const fullPath = `/tmp/msf-handshakes/${valid.hash_file}`;
+      if (valid && !hashFile && dir) {
+        const fullPath = `${dir}/${valid.hash_file}`;
         setHashFile(fullPath);
         setCustomHash(fullPath);
       }
@@ -2069,7 +2072,7 @@ export function HashcatPanel({ sessionId }: { sessionId: number }) {
       {/* ── Uploaded Handshakes ── */}
       <div className="bf-section">
         <div className="bf-section-title" style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <span>Uploaded Handshakes <span className="hc-dir-hint">(/tmp/msf-handshakes/)</span></span>
+          <span>Uploaded Handshakes {handshakeDir && <span className="hc-dir-hint">({handshakeDir}/)</span>}</span>
           <button className="hc-refresh-btn" onClick={loadHandshakes} disabled={hsLoading}>
             {hsLoading ? 'Loading…' : '⟳ Refresh'}
           </button>
@@ -2083,7 +2086,7 @@ export function HashcatPanel({ sessionId }: { sessionId: number }) {
             <thead><tr><th>File</th><th>Networks</th><th>.22000 path</th></tr></thead>
             <tbody>
               {uploadedCaps.filter(c => c.status === 'valid').map((cap, i) => {
-                const fullPath = `/tmp/msf-handshakes/${cap.hash_file}`;
+                const fullPath = handshakeDir ? `${handshakeDir}/${cap.hash_file}` : cap.hash_file;
                 const isSelected = customHash === fullPath || hashFile === fullPath;
                 return (
                   <tr key={i}
@@ -2105,7 +2108,7 @@ export function HashcatPanel({ sessionId }: { sessionId: number }) {
           <div className="hc-hash-input-row">
             <input
               className="bf-text-input hc-hash-input"
-              placeholder="/tmp/msf-handshakes/capture.22000"
+              placeholder={handshakeDir ? `${handshakeDir}/capture.22000` : 'path/to/capture.22000'}
               value={customHash}
               onChange={e => { setCustomHash(e.target.value); setHashFile(''); }}
             />
@@ -2120,7 +2123,7 @@ export function HashcatPanel({ sessionId }: { sessionId: number }) {
               {browseOpen && uploadedCaps.filter(c => c.status === 'valid').length > 0 && (
                 <div className="hc-browse-dropdown">
                   {uploadedCaps.filter(c => c.status === 'valid').map((cap, i) => {
-                    const fp = `/tmp/msf-handshakes/${cap.hash_file}`;
+                    const fp = handshakeDir ? `${handshakeDir}/${cap.hash_file}` : cap.hash_file;
                     return (
                       <div key={i} className="hc-browse-item"
                         onClick={() => { setCustomHash(fp); setHashFile(fp); setBrowseOpen(false); }}>
@@ -2133,7 +2136,7 @@ export function HashcatPanel({ sessionId }: { sessionId: number }) {
               )}
               {browseOpen && uploadedCaps.filter(c => c.status === 'valid').length === 0 && (
                 <div className="hc-browse-dropdown">
-                  <div className="hc-browse-empty">No .22000 files in /tmp/msf-handshakes/</div>
+                  <div className="hc-browse-empty">No converted handshakes found.</div>
                 </div>
               )}
             </div>

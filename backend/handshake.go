@@ -14,7 +14,10 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-const handshakeDir = "/tmp/msf-handshakes"
+// handshakeDir is set by initHandshakeDir() during startup.
+// It is placed next to the binary (via baseDir) so it survives reboots
+// and app restarts — files are only removed when the user explicitly deletes them.
+var handshakeDir string
 
 type HandshakeEntry struct {
 	mu         sync.Mutex
@@ -34,8 +37,65 @@ var (
 	handshakesIdx  = map[string]*HandshakeEntry{} // name → entry
 )
 
-func init() {
+// initHandshakeDir sets the persistent storage directory and restores the
+// in-memory registry from any files already on disk (e.g. after a restart).
+func initHandshakeDir(dir string) {
+	handshakeDir = dir
 	os.MkdirAll(handshakeDir, 0o755)
+	restoreHandshakesFromDisk()
+}
+
+func restoreHandshakesFromDisk() {
+	entries, err := os.ReadDir(handshakeDir)
+	if err != nil {
+		return
+	}
+	handshakesMu.Lock()
+	defer handshakesMu.Unlock()
+
+	for _, de := range entries {
+		if de.IsDir() {
+			continue
+		}
+		name := de.Name()
+		// Only restore .cap files; .22000 files are linked from their cap entry.
+		if !strings.HasSuffix(name, ".cap") {
+			continue
+		}
+		if _, exists := handshakesIdx[name]; exists {
+			continue // already registered (shouldn't happen on fresh start)
+		}
+		info, err := de.Info()
+		if err != nil {
+			continue
+		}
+		entry := &HandshakeEntry{
+			Name:       name,
+			OrigName:   name,
+			Size:       info.Size(),
+			UploadedAt: info.ModTime(),
+		}
+		hashName := name + ".22000"
+		hashPath := filepath.Join(handshakeDir, hashName)
+		if hashInfo, statErr := os.Stat(hashPath); statErr == nil && hashInfo.Size() > 0 {
+			data, _ := os.ReadFile(hashPath)
+			count := 0
+			for _, line := range strings.Split(string(data), "\n") {
+				if strings.TrimSpace(line) != "" {
+					count++
+				}
+			}
+			entry.Status = "valid"
+			entry.HashFile = hashName
+			entry.Networks = count
+		} else {
+			// No hash file yet — attempt conversion in the background.
+			entry.Status = "processing"
+			go processHandshake(entry)
+		}
+		handshakesLog = append(handshakesLog, entry)
+		handshakesIdx[name] = entry
+	}
 }
 
 // copyFile copies src to dst.
@@ -265,7 +325,8 @@ func handleListHandshakes() http.HandlerFunc {
 		handshakesMu.RUnlock()
 
 		data, _ := encodeJSON(out)
-		fmt.Fprintf(w, `{"files":%s}`, data)
+		dirJSON, _ := encodeJSON(handshakeDir)
+		fmt.Fprintf(w, `{"files":%s,"dir":%s}`, data, dirJSON)
 	}
 }
 
