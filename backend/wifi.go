@@ -360,6 +360,13 @@ func upsertWifiCrackedProject(db *DB, userID, attackSessionID int, essid, bssid,
 
 	// Append credential — AppendBruteforceCredential deduplicates internally
 	AppendBruteforceCredential(sessID, bssid, essid, password, "WPA")
+
+	// Stamp the cracked password onto every wifi_handshake loot entry in this
+	// project so it appears alongside the capture file in the Loot tab.
+	allSessions, _ := db.GetProjectSessions(proj.ID, userID)
+	for _, s := range allSessions {
+		SetWifiHandshakePassword(s.ID, bssid, essid, bssid, password)
+	}
 }
 
 // getFreshClientMACs re-parses the most recent scan CSV to get an up-to-date

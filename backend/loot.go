@@ -190,6 +190,57 @@ func AppendWifiHandshakeLoot(sessionID int, target, ssid, bssid, capFile, hashFi
 	return saveLootDocument(doc)
 }
 
+// SetWifiHandshakePassword adds or updates the "password" field on every
+// wifi_handshake loot entry whose "bssid" matches.  If no matching entry
+// exists a minimal new entry is created so the password is always recorded.
+func SetWifiHandshakePassword(sessionID int, target, ssid, bssid, password string) error {
+	if password == "" {
+		return nil
+	}
+	lootMu.Lock()
+	defer lootMu.Unlock()
+	doc := loadLootDocument(sessionID)
+	if doc == nil {
+		doc = &LootDocument{SessionID: sessionID, Target: target}
+	}
+	updated := false
+	for i, item := range doc.Items {
+		if item.Type != "wifi_handshake" {
+			continue
+		}
+		for _, f := range item.Fields {
+			if f.Name == "bssid" && strings.EqualFold(f.Value, bssid) {
+				// Replace existing password field or append a new one.
+				replaced := false
+				for j, fld := range doc.Items[i].Fields {
+					if fld.Name == "password" {
+						doc.Items[i].Fields[j].Value = password
+						replaced = true
+						break
+					}
+				}
+				if !replaced {
+					doc.Items[i].Fields = append(doc.Items[i].Fields,
+						LootField{Name: "password", Value: password})
+				}
+				updated = true
+				break
+			}
+		}
+	}
+	if !updated {
+		// No existing handshake entry — create a minimal one with the password.
+		ts := time.Now().UTC().Format(time.RFC3339)
+		doc.Items = append(doc.Items, LootItem{
+			Type:      "wifi_handshake",
+			Source:    "hashcat",
+			Timestamp: ts,
+			Fields:    lootFields("ssid", ssid, "bssid", bssid, "password", password),
+		})
+	}
+	return saveLootDocument(doc)
+}
+
 // AppendSqlmapFinding saves a single sqlmap finding to the session's loot.
 // Duplicate findings (same type+value) are silently skipped.
 func AppendSqlmapFinding(sessionID int, target, findingType, value string) error {

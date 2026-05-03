@@ -590,6 +590,7 @@ func handleStartHashcat(db *DB) http.HandlerFunc {
 					essid = fallbackESSID
 				}
 				AppendBruteforceCredential(sessionID, bssid, essid, entry.Password, "WPA")
+				SetWifiHandshakePassword(sessionID, bssid, essid, bssid, entry.Password)
 				upsertWifiCrackedProject(db, userID, sessionID, essid, bssid, entry.Password)
 			}
 			job.mu.Lock()

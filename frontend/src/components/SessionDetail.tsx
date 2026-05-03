@@ -5306,7 +5306,7 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
                     <div className="loot-section">
                       <div className="loot-section-title loot-wifi">WiFi Handshakes</div>
                       <table className="loot-table ssp-table">
-                        <thead><tr><th>SSID</th><th>BSSID</th><th>Hashes</th><th>Cap File</th><th>Time</th></tr></thead>
+                        <thead><tr><th>SSID</th><th>BSSID</th><th>Password</th><th>Hashes</th><th>Cap File</th><th>Time</th></tr></thead>
                         <tbody>
                           {lootItems.filter(i => i.type === 'wifi_handshake').map((item, idx) => {
                             const f: Record<string,string> = Object.fromEntries((item.fields||[]).map((f:any)=>[f.name,f.value]));
@@ -5314,6 +5314,9 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
                               <tr key={idx}>
                                 <td className="loot-mono">{f.ssid || '—'}</td>
                                 <td className="loot-mono">{f.bssid || '—'}</td>
+                                <td className="loot-mono" style={f.password ? {color:'var(--green)',fontWeight:700} : undefined}>
+                                  {f.password || '—'}
+                                </td>
                                 <td className="loot-mono">{f.hashes || '—'}</td>
                                 <td className="loot-mono loot-path">{f.cap_file || '—'}</td>
                                 <td className="loot-ts">{item.timestamp?.slice(0,19).replace('T',' ')}</td>
