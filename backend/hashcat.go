@@ -223,9 +223,14 @@ func buildHashcatArgs(req HashcatRequest, outFile string) ([]string, error) {
 	}
 	args = append(args, "-w", strconv.Itoa(w))
 
-	if req.DeviceTypes != "" {
-		args = append(args, "-D", req.DeviceTypes)
+	// Default to "1,2" (CPU + GPU) so hashcat works in VM environments that
+	// have no supported GPU — without this, hashcat exits silently with
+	// "No devices found" when GPU OpenCL is unavailable.
+	dt := req.DeviceTypes
+	if dt == "" {
+		dt = "1,2"
 	}
+	args = append(args, "-D", dt)
 	if req.Optimized {
 		args = append(args, "-O")
 	}
@@ -239,9 +244,12 @@ func buildHashcatArgs(req HashcatRequest, outFile string) ([]string, error) {
 		args = append(args, "--show")
 	}
 
-	// Status updates every 10 seconds + outfile
-	// Format 3 = hash:plain; parser also handles bare hex plain (WPA mode behaviour)
+	// --hex-plain: passwords are always written as hex in the outfile, making
+	// parsing unambiguous — plaintext "12345678" and hex string "12345678" are
+	// otherwise indistinguishable, corrupting the displayed password.
+	// Format 3 = hash:hex_plain; we decode in parseOutfileLine / hexPlainDecode.
 	args = append(args,
+		"--hex-plain",
 		"--status", "--status-timer=10",
 		"--outfile", outFile,
 		"--outfile-format", "3",

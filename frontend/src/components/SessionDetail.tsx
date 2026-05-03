@@ -1935,7 +1935,7 @@ export function HashcatPanel({ sessionId }: { sessionId: number }) {
   const [rulesFile,     setRulesFile]     = useState('');
   const [mask,          setMask]          = useState('');
   const [workload,      setWorkload]      = useState(3);
-  const [deviceTypes,   setDeviceTypes]   = useState('');
+  const [deviceTypes,   setDeviceTypes]   = useState('1,2');
   const [optimized,     setOptimized]     = useState(true);
   const [force,         setForce]         = useState(false);
   const [potfileDisable, setPotfileDisable] = useState(true);
