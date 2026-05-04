@@ -53,8 +53,6 @@ function App(_: AppProps) {
     setIsAuthenticated(false);
   };
 
-  const loginPage = <LoginPage onLogin={() => setIsAuthenticated(true)} />;
-
   if (isLoading) {
     return <div className="app loading">Loading...</div>;
   }
@@ -63,9 +61,16 @@ function App(_: AppProps) {
     <BrowserRouter>
       <div className="app">
         <Routes>
-          {/* /login always shows the login form — the backend opens the browser
-              here on startup so the user always sees the login page first. */}
-          <Route path="/login" element={loginPage} />
+          {/* /login shows the login form when not authenticated; redirects to /
+              once authenticated so the user lands on projects after logging in. */}
+          <Route
+            path="/login"
+            element={
+              isAuthenticated
+                ? <Navigate to="/" replace />
+                : <LoginPage onLogin={() => setIsAuthenticated(true)} />
+            }
+          />
 
           {isAuthenticated ? (
             <>
@@ -78,7 +83,7 @@ function App(_: AppProps) {
               <Route path="*" element={<Navigate to="/" replace />} />
             </>
           ) : (
-            <Route path="*" element={loginPage} />
+            <Route path="*" element={<LoginPage onLogin={() => setIsAuthenticated(true)} />} />
           )}
         </Routes>
       </div>
