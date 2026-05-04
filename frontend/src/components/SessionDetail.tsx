@@ -4026,11 +4026,11 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
   const initialTab = searchParams.get('tab');
 
   const [session, setSession]           = useState<Session | null>(null);
-  const [activeAction, setActiveAction] = useState<number | null>(initialTab === 'loot' ? 8 : null);
+  const [activeAction, setActiveAction] = useState<number | null>(initialTab === 'loot' ? 9 : null);
   const [localIfaces, setLocalIfaces]   = useState<{ name: string; cidr: string; ip: string }[]>([]);
 
-  // Panel collapse state — console starts collapsed when arriving via ?tab=loot.
-  const [consoleCollapsed, setConsoleCollapsed] = useState(initialTab === 'loot');
+  // Console is not shown on the Loot tab (action 9) — no need to pre-collapse it.
+  const [consoleCollapsed, setConsoleCollapsed] = useState(false);
   const [actionCollapsed, setActionCollapsed]   = useState(false);
 
   // Vuln scan state
