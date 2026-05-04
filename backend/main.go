@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -230,8 +231,20 @@ func main() {
 	setupCleanup()
 
 	go func() {
-		time.Sleep(500 * time.Millisecond)
-		url := "http://localhost" + port
+		// Wait until the HTTP server is actually accepting connections before
+		// opening the browser, so the user never lands on a connection-refused page.
+		addr := "localhost" + port
+		for i := 0; i < 60; i++ {
+			conn, err := net.DialTimeout("tcp", addr, time.Second)
+			if err == nil {
+				conn.Close()
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		// Open to /login so the login page is always shown first, regardless of
+		// whether the browser has a cached JWT cookie from a previous session.
+		url := "http://localhost" + port + "/login"
 		var cmd *exec.Cmd
 		switch runtime.GOOS {
 		case "darwin":

@@ -53,6 +53,8 @@ function App(_: AppProps) {
     setIsAuthenticated(false);
   };
 
+  const loginPage = <LoginPage onLogin={() => setIsAuthenticated(true)} />;
+
   if (isLoading) {
     return <div className="app loading">Loading...</div>;
   }
@@ -60,19 +62,25 @@ function App(_: AppProps) {
   return (
     <BrowserRouter>
       <div className="app">
-        {isAuthenticated ? (
-          <Routes>
-            <Route path="/" element={<ProjectsPage onLogout={handleLogout} />} />
-            <Route path="/project/:id" element={<ProjectView onLogout={handleLogout} />} />
-            <Route path="/session/:id" element={<SessionDetail onLogout={handleLogout} />} />
-            <Route path="/report/:id" element={<ReportPage />} />
-            <Route path="/project-report/:id" element={<ProjectReportPage />} />
-            <Route path="/topology/:id" element={<TopographyPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        ) : (
-          <LoginPage onLogin={() => setIsAuthenticated(true)} />
-        )}
+        <Routes>
+          {/* /login always shows the login form — the backend opens the browser
+              here on startup so the user always sees the login page first. */}
+          <Route path="/login" element={loginPage} />
+
+          {isAuthenticated ? (
+            <>
+              <Route path="/" element={<ProjectsPage onLogout={handleLogout} />} />
+              <Route path="/project/:id" element={<ProjectView onLogout={handleLogout} />} />
+              <Route path="/session/:id" element={<SessionDetail onLogout={handleLogout} />} />
+              <Route path="/report/:id" element={<ReportPage />} />
+              <Route path="/project-report/:id" element={<ProjectReportPage />} />
+              <Route path="/topology/:id" element={<TopographyPage />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </>
+          ) : (
+            <Route path="*" element={loginPage} />
+          )}
+        </Routes>
       </div>
     </BrowserRouter>
   );
