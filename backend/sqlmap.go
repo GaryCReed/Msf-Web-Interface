@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -26,7 +27,7 @@ type SqlmapJob struct {
 }
 
 type SqlmapFinding struct {
-	Type  string `json:"type"`  // "injection" | "database" | "table" | "hash" | "dump"
+	Type  string `json:"type"`  // "injection" | "database" | "table" | "hash" | "dump" | "os"
 	Value string `json:"value"`
 }
 
@@ -51,6 +52,7 @@ type SqlmapRequest struct {
 	Headers     string `json:"headers"`
 	RequestFile string `json:"request_file"`
 	DirectConn  string `json:"direct_conn"`
+	SecondURL   string `json:"second_url"` // for second-order injection
 
 	// Injection
 	TestParam string `json:"test_param"`
@@ -59,23 +61,31 @@ type SqlmapRequest struct {
 	Suffix    string `json:"suffix"`
 	Tamper    string `json:"tamper"`
 	Technique string `json:"technique"`
+	TimeSec   int    `json:"time_sec"` // time-based blind delay (default 5)
 
 	// Detection
-	Level  int  `json:"level"`
-	Risk   int  `json:"risk"`
-	Smart  bool `json:"smart"`
-	Forms  bool `json:"forms"`
+	Level     int    `json:"level"`
+	Risk      int    `json:"risk"`
+	Smart     bool   `json:"smart"`
+	Forms     bool   `json:"forms"`
+	String_   string `json:"string"`     // string that indicates True response
+	NotString string `json:"not_string"` // string that indicates False response
+	Code      int    `json:"code"`       // HTTP code for True response
 
 	// Enumeration
 	GetBanner      bool `json:"get_banner"`
 	GetCurrentUser bool `json:"get_current_user"`
 	GetCurrentDB   bool `json:"get_current_db"`
 	GetIsDBA       bool `json:"get_is_dba"`
+	GetHostname    bool `json:"get_hostname"`
 	GetUsers       bool `json:"get_users"`
 	GetPasswords   bool `json:"get_passwords"`
+	GetPrivileges  bool `json:"get_privileges"`
+	GetRoles       bool `json:"get_roles"`
 	GetDatabases   bool `json:"get_databases"`
 	GetTables      bool `json:"get_tables"`
 	GetColumns     bool `json:"get_columns"`
+	GetCount       bool `json:"get_count"`
 	DumpTable      bool `json:"dump_table"`
 	DumpAll        bool `json:"dump_all"`
 	Schema         bool `json:"schema"`
@@ -85,8 +95,15 @@ type SqlmapRequest struct {
 	Table    string `json:"table"`
 	Column   string `json:"column"`
 
+	// SQL / OS access (man page: --sql-query, --sql-shell, --os-shell, --os-pwn)
+	SQLQuery string `json:"sql_query"`
+	SQLShell bool   `json:"sql_shell"`
+	OSShell  bool   `json:"os_shell"`
+	OSPwn    bool   `json:"os_pwn"`
+
 	// Request options
 	RandomAgent bool    `json:"random_agent"`
+	UserAgent   string  `json:"user_agent"`
 	Proxy       string  `json:"proxy"`
 	UseTor      bool    `json:"use_tor"`
 	Delay       float64 `json:"delay"`
@@ -94,11 +111,13 @@ type SqlmapRequest struct {
 	Retries     int     `json:"retries"`
 	Threads     int     `json:"threads"`
 	ForceSSL    bool    `json:"force_ssl"`
+	IgnoreCode  string  `json:"ignore_code"` // HTTP codes to ignore, e.g. "401,403"
 
 	// General
 	Verbosity    int    `json:"verbosity"`
 	FlushSession bool   `json:"flush_session"`
 	ParseErrors  bool   `json:"parse_errors"`
+	NoCast       bool   `json:"no_cast"`
 	CrawlDepth   int    `json:"crawl_depth"`
 	CustomArgs   string `json:"custom_args"`
 }
@@ -106,7 +125,6 @@ type SqlmapRequest struct {
 // ── Arg builder ───────────────────────────────────────────────────────────────
 
 func buildSqlmapArgs(req SqlmapRequest, outputDir string) ([]string, error) {
-	// Require at least one target source
 	if req.URL == "" && req.RequestFile == "" && req.DirectConn == "" {
 		return nil, fmt.Errorf("target URL, request file, or direct connection string required")
 	}
@@ -123,6 +141,9 @@ func buildSqlmapArgs(req SqlmapRequest, outputDir string) ([]string, error) {
 	if req.DirectConn != "" {
 		args = append(args, "-d", req.DirectConn)
 	}
+	if req.SecondURL != "" {
+		args = append(args, "--second-url="+req.SecondURL)
+	}
 
 	// Request
 	if req.Data != "" {
@@ -137,6 +158,9 @@ func buildSqlmapArgs(req SqlmapRequest, outputDir string) ([]string, error) {
 	if req.Headers != "" {
 		args = append(args, "--headers="+req.Headers)
 	}
+	if req.UserAgent != "" {
+		args = append(args, "--user-agent="+req.UserAgent)
+	}
 	if req.RandomAgent {
 		args = append(args, "--random-agent")
 	}
@@ -148,6 +172,9 @@ func buildSqlmapArgs(req SqlmapRequest, outputDir string) ([]string, error) {
 	}
 	if req.ForceSSL {
 		args = append(args, "--force-ssl")
+	}
+	if req.IgnoreCode != "" {
+		args = append(args, "--ignore-code="+req.IgnoreCode)
 	}
 	if req.Delay > 0 {
 		args = append(args, fmt.Sprintf("--delay=%.1f", req.Delay))
@@ -184,6 +211,10 @@ func buildSqlmapArgs(req SqlmapRequest, outputDir string) ([]string, error) {
 	}
 	args = append(args, "--technique="+tech)
 
+	if req.TimeSec > 0 && req.TimeSec != 5 {
+		args = append(args, "--time-sec="+strconv.Itoa(req.TimeSec))
+	}
+
 	// Detection
 	level := req.Level
 	if level < 1 || level > 5 {
@@ -206,6 +237,18 @@ func buildSqlmapArgs(req SqlmapRequest, outputDir string) ([]string, error) {
 	if req.ParseErrors {
 		args = append(args, "--parse-errors")
 	}
+	if req.NoCast {
+		args = append(args, "--no-cast")
+	}
+	if req.String_ != "" {
+		args = append(args, "--string="+req.String_)
+	}
+	if req.NotString != "" {
+		args = append(args, "--not-string="+req.NotString)
+	}
+	if req.Code > 0 {
+		args = append(args, "--code="+strconv.Itoa(req.Code))
+	}
 
 	// Enumeration
 	if req.GetBanner {
@@ -220,11 +263,20 @@ func buildSqlmapArgs(req SqlmapRequest, outputDir string) ([]string, error) {
 	if req.GetIsDBA {
 		args = append(args, "--is-dba")
 	}
+	if req.GetHostname {
+		args = append(args, "--hostname")
+	}
 	if req.GetUsers {
 		args = append(args, "--users")
 	}
 	if req.GetPasswords {
 		args = append(args, "--passwords")
+	}
+	if req.GetPrivileges {
+		args = append(args, "--privileges")
+	}
+	if req.GetRoles {
+		args = append(args, "--roles")
 	}
 	if req.GetDatabases {
 		args = append(args, "--dbs")
@@ -234,6 +286,9 @@ func buildSqlmapArgs(req SqlmapRequest, outputDir string) ([]string, error) {
 	}
 	if req.GetColumns {
 		args = append(args, "--columns")
+	}
+	if req.GetCount {
+		args = append(args, "--count")
 	}
 	if req.Schema {
 		args = append(args, "--schema")
@@ -256,6 +311,20 @@ func buildSqlmapArgs(req SqlmapRequest, outputDir string) ([]string, error) {
 		args = append(args, "-C", req.Column)
 	}
 
+	// SQL / OS access
+	if req.SQLQuery != "" {
+		args = append(args, "--sql-query="+req.SQLQuery)
+	}
+	if req.SQLShell {
+		args = append(args, "--sql-shell")
+	}
+	if req.OSShell {
+		args = append(args, "--os-shell")
+	}
+	if req.OSPwn {
+		args = append(args, "--os-pwn")
+	}
+
 	// General
 	v := req.Verbosity
 	if v < 0 || v > 6 {
@@ -271,64 +340,172 @@ func buildSqlmapArgs(req SqlmapRequest, outputDir string) ([]string, error) {
 	}
 
 	if req.CustomArgs != "" {
-		args = append(args, strings.Fields(req.CustomArgs)...)
+		extra, err := shellSplitArgs(req.CustomArgs)
+		if err != nil {
+			return nil, fmt.Errorf("custom args: %v", err)
+		}
+		args = append(args, extra...)
 	}
 
+	return args, nil
+}
+
+// shellSplitArgs splits a shell-like argument string respecting single and
+// double quotes. It does not support backslash escaping outside quotes.
+func shellSplitArgs(s string) ([]string, error) {
+	var args []string
+	var cur strings.Builder
+	inSingle := false
+	inDouble := false
+	for i, r := range s {
+		switch {
+		case inSingle:
+			if r == '\'' {
+				inSingle = false
+			} else {
+				cur.WriteRune(r)
+			}
+		case inDouble:
+			if r == '"' {
+				inDouble = false
+			} else {
+				cur.WriteRune(r)
+			}
+		case r == '\'':
+			inSingle = true
+		case r == '"':
+			inDouble = true
+		case unicode.IsSpace(r):
+			if cur.Len() > 0 {
+				args = append(args, cur.String())
+				cur.Reset()
+			}
+		default:
+			cur.WriteRune(r)
+		}
+		_ = i
+	}
+	if inSingle || inDouble {
+		return nil, fmt.Errorf("unterminated quote in custom args")
+	}
+	if cur.Len() > 0 {
+		args = append(args, cur.String())
+	}
 	return args, nil
 }
 
 // ── Output parsing ────────────────────────────────────────────────────────────
 
 var (
-	reDBMS       = regexp.MustCompile(`(?i)the back-end DBMS is ([^\n\r]+)`)
-	reInjectable = regexp.MustCompile(`(?i)(injectable|SQL injection (vulnerability|point))`)
-	reDatabase   = regexp.MustCompile(`^\[\*\] (.+)$`)
-	reDumpRow    = regexp.MustCompile(`^\| .+ \|`)
-	reDBLine     = regexp.MustCompile(`(?i)^Database:\s+(\S+)`)
-	reTblLine    = regexp.MustCompile(`(?i)^Table:\s+(\S+)`)
+	reDBMS = regexp.MustCompile(`(?i)the back-end DBMS is ([^\n\r]+)`)
+
+	// Matches the parameter injection block header: "Parameter: id (GET)"
+	reParamHeader = regexp.MustCompile(`(?i)^Parameter:\s+(\S+)\s+\((\w+)\)`)
+
+	// Matches injection type line inside a parameter block: "    Type: boolean-based blind"
+	reInjType = regexp.MustCompile(`(?i)^\s+Type:\s+(.+)`)
+
+	// Matches "... is vulnerable" or "SQL injection" confirmed lines
+	reInjectable = regexp.MustCompile(`(?i)(is vulnerable|SQL injection (vulnerability|point)|parameter .+ is (injectable|vulnerable))`)
+
+	// Database list item: "[*] dbname" — but only when it's a bare name, not a status line.
+	// sqlmap prints [*] items for database names after "available databases [N]:"
+	reDBItem = regexp.MustCompile(`^\[\*\]\s+(\S+)\s*$`)
+
+	// Database/Table label lines in dump output
+	reDBLine  = regexp.MustCompile(`(?i)^Database:\s+(\S+)`)
+	reTblLine = regexp.MustCompile(`(?i)^Table:\s+(\S+)`)
+
+	// Dump row (table border lines contain |)
+	reDumpRow = regexp.MustCompile(`^\|\s+.+\s+\|`)
+
+	// OS command execution result
+	reOSCmd = regexp.MustCompile(`(?i)(command standard output|os-shell>|os_shell|command execution)`)
 )
 
 // parseSqlmapLine inspects a single output line and returns a finding if one is detected.
 func parseSqlmapLine(line string) *SqlmapFinding {
+	trimmed := strings.TrimSpace(line)
+
 	// DBMS identification
 	if m := reDBMS.FindStringSubmatch(line); len(m) > 1 {
 		return &SqlmapFinding{Type: "injection", Value: "DBMS: " + strings.TrimSpace(m[1])}
 	}
-	// Injectable parameter
+
+	// Injectable parameter block header
+	if m := reParamHeader.FindStringSubmatch(trimmed); len(m) > 2 {
+		return &SqlmapFinding{Type: "injection", Value: fmt.Sprintf("Parameter: %s (%s)", m[1], m[2])}
+	}
+
+	// Injection type line (inside a parameter block)
+	if m := reInjType.FindStringSubmatch(line); len(m) > 1 {
+		return &SqlmapFinding{Type: "injection", Value: "  Type: " + strings.TrimSpace(m[1])}
+	}
+
+	// Generic "is vulnerable / injectable" lines
 	if reInjectable.MatchString(line) {
-		return &SqlmapFinding{Type: "injection", Value: strings.TrimSpace(line)}
+		return &SqlmapFinding{Type: "injection", Value: trimmed}
 	}
-	// Database list entry (sqlmap prints [*] <dbname> when listing dbs)
-	if strings.Contains(line, "available databases") || strings.Contains(line, "database schemas") {
-		return &SqlmapFinding{Type: "database", Value: strings.TrimSpace(line)}
-	}
-	if m := reDatabase.FindStringSubmatch(line); len(m) > 1 {
-		val := strings.TrimSpace(m[1])
-		// Avoid matching generic info lines
-		if !strings.Contains(val, "[") && !strings.Contains(val, "starting") {
-			return &SqlmapFinding{Type: "database", Value: val}
+
+	// [*] database_name — exclude status lines (contain spaces, "starting", digits only, etc.)
+	if m := reDBItem.FindStringSubmatch(trimmed); len(m) > 1 {
+		name := m[1]
+		if !strings.EqualFold(name, "starting") &&
+			!strings.EqualFold(name, "shutting") &&
+			!strings.Contains(name, "target") &&
+			!isAllDigits(name) {
+			return &SqlmapFinding{Type: "database", Value: name}
 		}
 	}
-	// Table name line in dump output
-	if m := reDBLine.FindStringSubmatch(line); len(m) > 1 {
-		return &SqlmapFinding{Type: "database", Value: strings.TrimSpace(m[1])}
+
+	// "available databases" / "database schemas" header
+	if strings.Contains(line, "available databases") || strings.Contains(line, "database schemas") {
+		return &SqlmapFinding{Type: "database", Value: trimmed}
 	}
-	if m := reTblLine.FindStringSubmatch(line); len(m) > 1 {
-		return &SqlmapFinding{Type: "table", Value: strings.TrimSpace(m[1])}
+
+	// Database: label line in dump/enumeration output
+	if m := reDBLine.FindStringSubmatch(trimmed); len(m) > 1 {
+		return &SqlmapFinding{Type: "database", Value: m[1]}
 	}
+
+	// Table: label line
+	if m := reTblLine.FindStringSubmatch(trimmed); len(m) > 1 {
+		return &SqlmapFinding{Type: "table", Value: m[1]}
+	}
+
 	// Password hash lines
 	if strings.Contains(line, "password hash") || strings.Contains(line, "Password hash") {
-		return &SqlmapFinding{Type: "hash", Value: strings.TrimSpace(line)}
+		return &SqlmapFinding{Type: "hash", Value: trimmed}
 	}
-	// Dump row
-	if reDumpRow.MatchString(line) {
-		return &SqlmapFinding{Type: "dump", Value: strings.TrimSpace(line)}
+
+	// Dump row (table data)
+	if reDumpRow.MatchString(trimmed) {
+		return &SqlmapFinding{Type: "dump", Value: trimmed}
 	}
-	// Generic [+] found line
-	if strings.HasPrefix(strings.TrimSpace(line), "[+]") {
-		return &SqlmapFinding{Type: "injection", Value: strings.TrimSpace(line)}
+
+	// OS access lines
+	if reOSCmd.MatchString(line) {
+		return &SqlmapFinding{Type: "os", Value: trimmed}
 	}
+
+	// Generic [+] found lines
+	if strings.HasPrefix(trimmed, "[+]") {
+		return &SqlmapFinding{Type: "injection", Value: trimmed}
+	}
+
 	return nil
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // ── Runner ────────────────────────────────────────────────────────────────────
@@ -340,7 +517,7 @@ func runSqlmap(job *SqlmapJob, args []string, sessionID int, target string) {
 
 	job.mu.Lock()
 	job.cmd = cmd
-	job.output = append(job.output, fmt.Sprintf("[*] sqlmap %s", strings.Join(args, " ")))
+	job.output = append(job.output, fmt.Sprintf("[*] sqlmap %s", shellQuoteArgs(args)))
 	job.mu.Unlock()
 
 	if err := cmd.Start(); err != nil {
@@ -395,7 +572,6 @@ func handleStartSqlmap(db *DB) http.HandlerFunc {
 			return
 		}
 
-		// Reject if already running
 		if j := getSqlmapJob(sessionID); j != nil {
 			j.mu.Lock()
 			running := !j.done

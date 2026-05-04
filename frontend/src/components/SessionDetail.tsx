@@ -2807,7 +2807,7 @@ export function FeroxPanel({ sessionId }: { sessionId: number }) {
 
 interface SqlmapFinding { type: string; value: string; }
 
-const DBMS_OPTIONS = ['', 'mysql', 'postgresql', 'mssql', 'oracle', 'sqlite', 'access', 'db2', 'firebird', 'hsqldb', 'informix', 'sybase'];
+const DBMS_OPTIONS = ['', 'mysql', 'postgresql', 'mssql', 'oracle', 'sqlite', 'access', 'db2', 'firebird', 'hsqldb', 'informix', 'sybase', 'maxdb', 'derby', 'vertica', 'cubrid', 'monetdb'];
 
 const TECHNIQUES = [
   { key: 'B', label: 'Boolean-based blind' },
@@ -2835,23 +2835,32 @@ export function SqlmapPanel({ sessionId }: { sessionId: number }) {
   const [suffix, setSuffix] = useState('');
   const [tamper, setTamper] = useState('');
   const [techniques, setTechniques] = useState<Set<string>>(new Set(['B','E','U','S','T','Q']));
+  const [timeSec, setTimeSec] = useState(5);
+  const [secondURL, setSecondURL] = useState('');
 
   // Detection
   const [level, setLevel] = useState(1);
   const [risk, setRisk] = useState(1);
   const [smart, setSmart] = useState(false);
   const [forms, setForms] = useState(false);
+  const [string_, setString_] = useState('');
+  const [notString, setNotString] = useState('');
+  const [code, setCode] = useState(0);
 
   // Enumeration
   const [getBanner, setGetBanner] = useState(false);
   const [getCurrentUser, setGetCurrentUser] = useState(false);
   const [getCurrentDB, setGetCurrentDB] = useState(false);
   const [getIsDBA, setGetIsDBA] = useState(false);
+  const [getHostname, setGetHostname] = useState(false);
   const [getUsers, setGetUsers] = useState(false);
   const [getPasswords, setGetPasswords] = useState(false);
+  const [getPrivileges, setGetPrivileges] = useState(false);
+  const [getRoles, setGetRoles] = useState(false);
   const [getDatabases, setGetDatabases] = useState(true);
   const [getTables, setGetTables] = useState(false);
   const [getColumns, setGetColumns] = useState(false);
+  const [getCount, setGetCount] = useState(false);
   const [dumpTable, setDumpTable] = useState(false);
   const [dumpAll, setDumpAll] = useState(false);
   const [schema, setSchema] = useState(false);
@@ -2859,11 +2868,19 @@ export function SqlmapPanel({ sessionId }: { sessionId: number }) {
   const [table, setTable] = useState('');
   const [column, setColumn] = useState('');
 
+  // SQL / OS access
+  const [sqlQuery, setSqlQuery] = useState('');
+  const [sqlShell, setSqlShell] = useState(false);
+  const [osShell, setOsShell] = useState(false);
+  const [osPwn, setOsPwn] = useState(false);
+
   // Request options
   const [randomAgent, setRandomAgent] = useState(false);
+  const [userAgent, setUserAgent] = useState('');
   const [proxy, setProxy] = useState('');
   const [useTor, setUseTor] = useState(false);
   const [forceSSL, setForceSSL] = useState(false);
+  const [ignoreCode, setIgnoreCode] = useState('');
   const [delay, setDelay] = useState(0);
   const [timeoutSecs, setTimeoutSecs] = useState(30);
   const [retries, setRetries] = useState(3);
@@ -2873,6 +2890,7 @@ export function SqlmapPanel({ sessionId }: { sessionId: number }) {
   const [verbosity, setVerbosity] = useState(1);
   const [flushSession, setFlushSession] = useState(false);
   const [parseErrors, setParseErrors] = useState(false);
+  const [noCast, setNoCast] = useState(false);
   const [crawlDepth, setCrawlDepth] = useState(0);
   const [customArgs, setCustomArgs] = useState('');
 
@@ -2948,28 +2966,44 @@ export function SqlmapPanel({ sessionId }: { sessionId: number }) {
         method: method !== 'GET' ? method : '',
         headers,
         request_file: useRequestFile ? requestFile : '',
+        second_url: secondURL,
         test_param: testParam,
         dbms, prefix, suffix, tamper,
         technique: Array.from(techniques).sort().join(''),
+        time_sec: timeSec !== 5 ? timeSec : 0,
         level, risk, smart, forms,
+        string: string_,
+        not_string: notString,
+        code,
         get_banner: getBanner,
         get_current_user: getCurrentUser,
         get_current_db: getCurrentDB,
         get_is_dba: getIsDBA,
+        get_hostname: getHostname,
         get_users: getUsers,
         get_passwords: getPasswords,
+        get_privileges: getPrivileges,
+        get_roles: getRoles,
         get_databases: getDatabases,
         get_tables: getTables,
         get_columns: getColumns,
+        get_count: getCount,
         dump_table: dumpTable,
         dump_all: dumpAll,
         schema,
         database, table, column,
+        sql_query: sqlQuery,
+        sql_shell: sqlShell,
+        os_shell: osShell,
+        os_pwn: osPwn,
         random_agent: randomAgent,
+        user_agent: userAgent,
         proxy, use_tor: useTor, force_ssl: forceSSL,
+        ignore_code: ignoreCode,
         delay, timeout: timeoutSecs, retries, threads,
         verbosity, flush_session: flushSession,
         parse_errors: parseErrors,
+        no_cast: noCast,
         crawl_depth: crawlDepth,
         custom_args: customArgs,
       });
@@ -2998,11 +3032,12 @@ export function SqlmapPanel({ sessionId }: { sessionId: number }) {
   const findingBadge = (type: string) => {
     switch (type) {
       case 'injection': return '🎯';
-      case 'database': return '🗄';
-      case 'table':    return '📋';
-      case 'hash':     return '🔑';
-      case 'dump':     return '📄';
-      default:         return '•';
+      case 'database':  return '🗄';
+      case 'table':     return '📋';
+      case 'hash':      return '🔑';
+      case 'dump':      return '📄';
+      case 'os':        return '💻';
+      default:          return '•';
     }
   };
 
@@ -3095,7 +3130,15 @@ export function SqlmapPanel({ sessionId }: { sessionId: number }) {
         <div className="sm-row">
           <span className="sm-label">Tamper</span>
           <input className="sm-text-input" value={tamper} onChange={e => setTamper(e.target.value)}
-            placeholder="between,space2comment" />
+            placeholder="between,space2comment" style={{maxWidth:280}} />
+          <span className="sm-label" style={{marginLeft:12}}>Time-sec</span>
+          <input className="sm-num-input" type="number" min={1} max={60} value={timeSec}
+            onChange={e => setTimeSec(Number(e.target.value))} title="Seconds to delay for time-based blind (default 5)" />
+        </div>
+        <div className="sm-row">
+          <span className="sm-label">2nd-order URL</span>
+          <input className="sm-text-input" value={secondURL} onChange={e => setSecondURL(e.target.value)}
+            placeholder="http://target/result.php (second-order injection)" />
         </div>
       </div>
 
@@ -3113,12 +3156,27 @@ export function SqlmapPanel({ sessionId }: { sessionId: number }) {
           </select>
           <label className="sm-check" style={{marginLeft:16}}>
             <input type="checkbox" checked={smart} onChange={e => setSmart(e.target.checked)} />
-            Smart (heuristic only)
+            Smart
           </label>
-          <label className="sm-check" style={{marginLeft:16}}>
+          <label className="sm-check" style={{marginLeft:12}}>
             <input type="checkbox" checked={parseErrors} onChange={e => setParseErrors(e.target.checked)} />
             Parse errors
           </label>
+          <label className="sm-check" style={{marginLeft:12}}>
+            <input type="checkbox" checked={noCast} onChange={e => setNoCast(e.target.checked)} />
+            No cast
+          </label>
+        </div>
+        <div className="sm-row">
+          <span className="sm-label">True string</span>
+          <input className="sm-text-input" value={string_} onChange={e => setString_(e.target.value)}
+            placeholder="text present in True response" style={{maxWidth:200}} />
+          <span className="sm-label" style={{marginLeft:12}}>False string</span>
+          <input className="sm-text-input" value={notString} onChange={e => setNotString(e.target.value)}
+            placeholder="text present in False response" style={{maxWidth:200}} />
+          <span className="sm-label" style={{marginLeft:12}}>True code</span>
+          <input className="sm-num-input" type="number" min={0} value={code || ''}
+            onChange={e => setCode(Number(e.target.value))} placeholder="200" title="HTTP code for True response" />
         </div>
       </div>
 
@@ -3127,18 +3185,22 @@ export function SqlmapPanel({ sessionId }: { sessionId: number }) {
         <div className="sm-section-title">Enumeration</div>
         <div className="sm-checkbox-grid">
           {[
-            { label: 'Banner',        val: getBanner,      set: setGetBanner },
-            { label: 'Current user',  val: getCurrentUser, set: setGetCurrentUser },
-            { label: 'Current DB',    val: getCurrentDB,   set: setGetCurrentDB },
-            { label: 'Is DBA',        val: getIsDBA,       set: setGetIsDBA },
-            { label: 'Users',         val: getUsers,       set: setGetUsers },
-            { label: 'Password hashes', val: getPasswords, set: setGetPasswords },
-            { label: 'Databases',     val: getDatabases,   set: setGetDatabases },
-            { label: 'Tables',        val: getTables,      set: setGetTables },
-            { label: 'Columns',       val: getColumns,     set: setGetColumns },
-            { label: 'Schema',        val: schema,         set: setSchema },
-            { label: 'Dump table',    val: dumpTable,      set: setDumpTable },
-            { label: 'Dump all',      val: dumpAll,        set: setDumpAll },
+            { label: 'Banner (-b)',     val: getBanner,      set: setGetBanner },
+            { label: 'Current user',   val: getCurrentUser, set: setGetCurrentUser },
+            { label: 'Current DB',     val: getCurrentDB,   set: setGetCurrentDB },
+            { label: 'Is DBA',         val: getIsDBA,       set: setGetIsDBA },
+            { label: 'Hostname',       val: getHostname,    set: setGetHostname },
+            { label: 'Users',          val: getUsers,       set: setGetUsers },
+            { label: 'Passwords',      val: getPasswords,   set: setGetPasswords },
+            { label: 'Privileges',     val: getPrivileges,  set: setGetPrivileges },
+            { label: 'Roles',          val: getRoles,       set: setGetRoles },
+            { label: 'Databases',      val: getDatabases,   set: setGetDatabases },
+            { label: 'Tables',         val: getTables,      set: setGetTables },
+            { label: 'Columns',        val: getColumns,     set: setGetColumns },
+            { label: 'Count',          val: getCount,       set: setGetCount },
+            { label: 'Schema',         val: schema,         set: setSchema },
+            { label: 'Dump table',     val: dumpTable,      set: setDumpTable },
+            { label: 'Dump all',       val: dumpAll,        set: setDumpAll },
           ].map(item => (
             <label key={item.label} className="sm-check">
               <input type="checkbox" checked={item.val} onChange={e => item.set(e.target.checked)} />
@@ -3159,6 +3221,30 @@ export function SqlmapPanel({ sessionId }: { sessionId: number }) {
         </div>
       </div>
 
+      {/* SQL / OS Access */}
+      <div className="sm-section">
+        <div className="sm-section-title">SQL / OS Access</div>
+        <div className="sm-row">
+          <span className="sm-label">SQL query</span>
+          <input className="sm-text-input" value={sqlQuery} onChange={e => setSqlQuery(e.target.value)}
+            placeholder="SELECT user,password FROM users" />
+        </div>
+        <div className="sm-row">
+          <label className="sm-check">
+            <input type="checkbox" checked={sqlShell} onChange={e => setSqlShell(e.target.checked)} />
+            SQL shell (--sql-shell)
+          </label>
+          <label className="sm-check" style={{marginLeft:16}}>
+            <input type="checkbox" checked={osShell} onChange={e => setOsShell(e.target.checked)} />
+            OS shell (--os-shell)
+          </label>
+          <label className="sm-check" style={{marginLeft:16}}>
+            <input type="checkbox" checked={osPwn} onChange={e => setOsPwn(e.target.checked)} />
+            OS pwn / Meterpreter (--os-pwn)
+          </label>
+        </div>
+      </div>
+
       {/* Request Options */}
       <div className="sm-section">
         <div className="sm-section-title">Request Options</div>
@@ -3175,6 +3261,14 @@ export function SqlmapPanel({ sessionId }: { sessionId: number }) {
             <input type="checkbox" checked={forceSSL} onChange={e => setForceSSL(e.target.checked)} />
             Force SSL
           </label>
+        </div>
+        <div className="sm-row">
+          <span className="sm-label">User-Agent</span>
+          <input className="sm-text-input" value={userAgent} onChange={e => setUserAgent(e.target.value)}
+            placeholder="custom UA string (overrides random)" style={{maxWidth:300}} />
+          <span className="sm-label" style={{marginLeft:12}}>Ignore codes</span>
+          <input className="sm-text-input" value={ignoreCode} onChange={e => setIgnoreCode(e.target.value)}
+            placeholder="401,403" style={{maxWidth:100}} title="Comma-separated HTTP codes to ignore" />
         </div>
         <div className="sm-row">
           <span className="sm-label">Proxy</span>
