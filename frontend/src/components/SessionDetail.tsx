@@ -3449,7 +3449,13 @@ export function BruteforcePanel({ sessionId }: { sessionId: number }) {
       {/* ── HTTP form options (conditional) ── */}
       {isWebForm && (
         <div className="bf-section">
-          <div className="bf-section-title">Web Form</div>
+          <div className="bf-section-title">
+            Web Form
+            <span style={{marginLeft:12,fontSize:'0.8em',fontWeight:'normal'}}>Presets:</span>
+            <button className="bf-preset-btn" onClick={() => { setFormURL('/wp-login.php'); setFormParams('log=^USER^&pwd=^PASS^&wp-submit=Log+In&testcookie=1'); setFormCond('S=Dashboard'); }}>WordPress</button>
+            <button className="bf-preset-btn" onClick={() => { setFormURL('/login'); setFormParams('username=^USER^&password=^PASS^'); setFormCond('F=incorrect'); }}>Generic</button>
+            <button className="bf-preset-btn" onClick={() => { setFormURL('/admin/login'); setFormParams('user=^USER^&pass=^PASS^'); setFormCond('F=invalid'); }}>Admin</button>
+          </div>
           <div className="bf-form-grid">
             <label>URL path</label>
             <input className="bf-text-input" value={formURL} onChange={e => setFormURL(e.target.value)} placeholder="/login" />
@@ -3974,6 +3980,9 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
   // interactedSession is the state mirror that drives UI filtering (post-ex commands, modules).
   const interactedSessionRef = useRef<{ id: string; isMeterpreter: boolean } | null>(null);
   const [interactedSession, setInteractedSession] = useState<{ id: string; isMeterpreter: boolean } | null>(null);
+  // Tracks whether the post-ex panel sent a standalone `shell` command that dropped into an interactive
+  // bash sub-shell. When true, the next meterpreter command must first send `exit` to return to meterpreter.
+  const inBashSubshellRef = useRef(false);
 
 
   // Post exploitation state
@@ -4361,6 +4370,11 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
     const isMeterpreter = interactedSessionRef.current.isMeterpreter;
     interactedSessionRef.current = null;
     setInteractedSession(null);
+    if (inBashSubshellRef.current) {
+      // Exit the bash sub-shell back to the meterpreter prompt first.
+      inBashSubshellRef.current = false;
+      await sendShellCmd('exit');
+    }
     await sendShellCmd('background');
     if (!isMeterpreter) {
       // Confirm the shell's "Background session N? [y/N]" prompt
@@ -4392,12 +4406,39 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
     try {
       // If not currently in an interactive session, enter the active one first.
       if (interactedSessionRef.current === null && activeMsfSession !== null) {
+        inBashSubshellRef.current = false; // entering fresh session
         const isMeter = activeMsfSession.type.startsWith('meterpreter');
         await sendShellCmd(`sessions -i ${activeMsfSession.id}`);
         interactedSessionRef.current = { id: activeMsfSession.id, isMeterpreter: isMeter };
         setInteractedSession({ id: activeMsfSession.id, isMeterpreter: isMeter });
+      } else if (inBashSubshellRef.current) {
+        // We previously sent a bare `shell` command that dropped into an interactive bash sub-shell.
+        // Exit back to the meterpreter prompt before sending the next meterpreter command.
+        inBashSubshellRef.current = false;
+        await sendShellCmd('exit');
       }
       const wrappedCmd = wrapSudo(cmd);
+
+      // `shell <cmd>` commands in meterpreter over a non-TTY pipe only produce
+      // "Process N created. Channel N created." — the channel stdout never arrives
+      // in the HTTP response because msfconsole's channel I/O requires interactive mode.
+      // Fix: enter bash explicitly (step 1), send the command through the active channel
+      // (step 2, where channel stdout IS piped), then exit (step 3).
+      const shellArgMatch = /^shell\s+(.+)$/.exec(wrappedCmd.trim());
+      if (shellArgMatch && interactedSessionRef.current?.isMeterpreter) {
+        await sendShellCmd('shell'); // step 1: enter bash — sets up channel interact mode
+        const shellRes = await axios.post(
+          `/api/sessions/${sessionId}/shell`,
+          { command: shellArgMatch[1] }, // step 2: send actual command through channel
+          { timeout: 15 * 1000 }
+        );
+        await sendShellCmd('exit'); // step 3: exit bash back to meterpreter
+        const output = shellRes.data.output || '(no output)';
+        setPostHistory(prev => [...prev, { cmd: label, output }]);
+        axios.post(`/api/sessions/${sessionId}/loot`, { cmd, output }).catch(() => {});
+        return;
+      }
+
       const res = await axios.post(
         `/api/sessions/${sessionId}/shell`,
         { command: wrappedCmd },
@@ -4405,6 +4446,11 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
       );
       const output = res.data.output || '(no output)';
       setPostHistory(prev => [...prev, { cmd: label, output }]);
+      // Track if this command dropped into an interactive bash sub-shell.
+      // `shell` with no args opens an interactive shell; `shell <cmd>` runs and returns.
+      if (wrappedCmd.trim() === 'shell') {
+        inBashSubshellRef.current = true;
+      }
       // Best-effort loot extraction
       axios.post(`/api/sessions/${sessionId}/loot`, { cmd, output }).catch(() => {});
     } catch (err: any) {
@@ -4923,6 +4969,7 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
                           <div className="msf-session-actions">
                             <button className={isMeterpreter ? 'btn-interact-meterpreter' : 'btn-run-scan'}
                               onClick={() => {
+                                inBashSubshellRef.current = false;
                                 interactedSessionRef.current = { id: s.id, isMeterpreter };
                                 setInteractedSession({ id: s.id, isMeterpreter });
                                 sendShellCmd(`sessions -i ${s.id}`);

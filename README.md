@@ -16,26 +16,34 @@ Each project groups target hosts into sessions, providing a live msfconsole term
 - **Project Report** — Aggregated professional penetration test report across all sessions in a project. Covers cover page, table of contents, executive summary with KPI boxes and charts, host summaries, consolidated CVE findings with remediation advice, post-exploitation findings, and a legal disclaimer. Print-ready PDF output.
 
 ### Per-Session Workspace
-- **Live msfconsole console** — Each session spawns a dedicated msfconsole process. Commands stream in real-time via WebSocket with command history and auto-reconnect.
-- **Vulnerability scanner** — Runs `nmap -sV -O --osscan-guess --script=vuln,vulners` against the target and parses results into a structured service list with OS detection.
-- **Enumeration panel** — Parses nmap XML output and maps each open port to relevant Metasploit modules, filtered by OS and service type.
-- **CVE analysis** — Fetches CVEs from NVD, enriches with CVSS scores and GitHub public PoC repositories. Results are persisted in the database (not just the browser) so they survive navigation and appear in project-level reports.
+- **Live msfconsole console** — Each session spawns a dedicated msfconsole process. Commands stream in real-time via WebSocket with command history and auto-reconnect. msfconsole auto-restarts on crash.
+- **Vulnerability scanner** — Runs `nmap -sV -O --osscan-guess --script=vuln,vulners` against the target and parses results into a structured service list with OS detection. Results are persisted in the database and survive restarts.
+- **Enumeration panel** — Parses nmap XML output and maps each open port to relevant Metasploit modules, filtered by OS and service type. Results are persisted.
+- **CVE analysis** — Fetches CVEs from NVD, enriches with CVSS scores and GitHub public PoC repositories. Results are persisted in the database so they survive navigation and appear in project-level reports.
+- **Searchsploit** — Search the local Exploit-DB copy for modules matching the target's services. Results are persisted per session.
 - **Shells panel** — Lists active msfconsole sessions. Supports interact, upgrade shell to Meterpreter, background, and kill. Auto-refreshes when a new session opens.
-- **Post exploitation** — Quick-command buttons and recommended module lists filtered by session type (Meterpreter/shell) and OS (Linux/Windows). Output is automatically parsed for credentials, hashes, user accounts, system info, and other artefacts.
-- **Loot extraction** — Post-ex command output is parsed and saved to a per-session loot store. Visible in the session report and project report.
+- **Post exploitation** — Quick-command buttons and recommended module lists filtered by session type (Meterpreter/shell) and OS (Linux/Windows). Native meterpreter commands (`sysinfo`, `getuid`, `ps`, etc.) are sent directly. Commands of the form `shell <cmd>` use a 3-step channel-interact sequence to correctly capture subprocess output through msfconsole's non-TTY pipe. Output is automatically parsed for credentials, hashes, user accounts, system info, and other artefacts.
+- **Active Directory panel** — Dedicated AD attack groups: Domain Enumeration, Credential Attacks, Lateral Movement, Privilege Escalation, BloodHound Collection, LDAP Enumeration, SMB/RPC Enumeration, and Certificate Attacks (ADCS).
+- **Loot extraction** — Post-ex command output is parsed and saved to a per-session loot store (XML on disk + database). Visible in the session report and project report. Loot persists across restarts and logouts.
 - **Session Report** — Structured engagement report covering scan summary, NSE findings, CVE analysis with remediation, post-exploitation output, and extracted loot. Print-ready PDF output.
 - **Notes** — Free-text notes saved per session.
-- **Searchsploit** — Search the local Exploit-DB copy for modules matching the target's services.
+- **Directory busting** — Feroxbuster integration with real-time streaming output. Results are persisted per session until a fresh scan is run.
 
 ### Password Attacks
-- **Hashcat** — GPU-accelerated WPA/WPA2 handshake cracking. Upload `.cap`/`.hccapx` files. Select from 50+ ISP-derived mask presets grouped by router/SSID family (BT Hub, TALKTALK, Virgin Media, Orange, Sky, Plusnet, and more), or enter a custom mask. Supports custom charset arguments (`-1`) for restricted keyspaces.
-- **WiFi handshake capture** — Monitor mode management, target AP scanning, and handshake capture via airodump-ng, all from the browser.
-- **Bruteforce** — Hydra-based credential brute-forcing against network services.
+- **Hashcat** — GPU-accelerated WPA/WPA2 handshake cracking. Accepts `.cap` and `.22000` files. Select from 50+ ISP-derived mask presets grouped by router/SSID family (BT Hub, TALKTALK, Virgin Media, Orange, Sky, Plusnet, and more), or enter a custom mask. Supports custom charset arguments (`-1`) for restricted keyspaces. Cracked passwords are decoded from raw hashcat output (including hex-encoded results) and stamped onto the session's handshake loot entries.
+- **WiFi handshake capture** — Monitor mode management, target AP scanning, and handshake capture via airodump-ng + aireplay-ng, all from the browser. Captured handshakes persist in `<baseDir>/handshakes/` until explicitly deleted and are restored on startup.
+- **WPA3-Transition Downgrade** — Detects WPA3-Transition mode APs (SAE+PSK mixed) and deploys a rogue AP via hostapd-mana. Configured with `auth_algs=1` (WPA-PSK only) to force clients to downgrade from SAE to PSK for handshake capture.
+- **Bruteforce** — Hydra-based credential brute-forcing against network services. Supports wordlists, combo files, and single credential mode. For HTTP form attacks:
+  - WordPress, Generic, and Admin quick-fill presets
+  - Form URL, POST params (`^USER^`/`^PASS^` placeholders), and success/failure condition fields
+  - Target sanitisation: `http://host:port/path` is automatically split into host, port (`-s`), and URL path
+  - Shell-safe displayed command (args containing `&` or `^` are single-quoted for safe copy-paste)
+- **WPScan** — WordPress vulnerability scanner with password attack mode. Username lists populated from local SecLists/Usernames wordlists. Full finding blocks (header + detail lines) are saved to loot.
 
 ### Infrastructure
-- **Authentication** — JWT-based login stored in an httpOnly cookie. Bcrypt password hashing.
-- **Storage** — SQLite by default (file created next to the binary). PostgreSQL supported. In-memory store for zero-config use.
-- **Binary portability** — The binary resolves `.env` and the SQLite database relative to its own location, so it can be run from any working directory.
+- **Authentication** — JWT-based login stored in an httpOnly cookie. Linux PAM authentication (uses your Linux system credentials). Bcrypt password hashing. Auth routes rate-limited to 10 req/min; all mutating routes rate-limited to 120 req/min.
+- **Storage** — SQLite by default (file created next to the binary). PostgreSQL supported. In-memory store for zero-config use. All scan results, CVEs, loot, and enumeration data are persisted to the database and survive restarts.
+- **Binary portability** — The binary resolves `.env`, the SQLite database, loot files, and handshake captures relative to its own location, so it can be run from any working directory.
 
 ---
 
@@ -52,10 +60,13 @@ See [QUICKSTART.md](QUICKSTART.md).
 | Backend | Go 1.20+, Chi router, Gorilla WebSocket |
 | Frontend | React 18, TypeScript, React Router |
 | Database | SQLite (default) or PostgreSQL or in-memory |
-| Auth | JWT (httpOnly cookie, 24-hour expiry, bcrypt) |
+| Auth | JWT (httpOnly cookie, 24-hour expiry, Linux PAM) |
 | Scanning | nmap |
-| Console | msfconsole (one process per session) |
-| Password attacks | hashcat, hydra, aircrack-ng suite |
+| Console | msfconsole (one process per session, auto-restart) |
+| Password attacks | hashcat, hydra, aircrack-ng suite, wpscan |
+| Directory busting | feroxbuster |
+| AD attacks | kerbrute, enum4linux-ng |
+| WiFi | airodump-ng, aireplay-ng, hostapd-mana |
 
 ---
 
@@ -66,13 +77,19 @@ See [QUICKSTART.md](QUICKSTART.md).
 ├── backend/
 │   ├── main.go          # Router, all HTTP handlers, server entry point
 │   ├── db.go            # Database models, queries (SQLite + PostgreSQL + in-memory)
-│   ├── auth.go          # JWT generation, validation, cookie helpers
+│   ├── auth.go          # JWT generation, validation, PAM auth, cookie helpers
 │   ├── websocket.go     # WebSocket upgrade, session fan-out broadcaster
-│   ├── executor.go      # msfconsole process lifecycle, stdin/stdout fan-out
-│   ├── scanner.go       # nmap execution, XML parsing, OS/service detection
-│   ├── loot.go          # Post-ex output parsing, loot persistence
+│   ├── executor.go      # msfconsole process lifecycle, stdin/stdout fan-out, auto-restart
+│   ├── scanner.go       # nmap execution, XML parsing, OS/service/gateway detection
+│   ├── loot.go          # Post-ex output parsing, loot persistence (XML + DB)
+│   ├── bruteforce.go    # Hydra argument builder, job management, output parser
+│   ├── hashcat.go       # Hashcat WPA cracking, hex password decode
+│   ├── wifi.go          # Monitor mode, AP scan, handshake capture, rogue AP
+│   ├── handshake.go     # Handshake file registry, disk persistence, startup restore
+│   ├── wpscan.go        # WPScan execution, block-accumulation output parser
+│   ├── feroxbuster.go   # Feroxbuster execution, result persistence
+│   ├── helpers.go       # JSON utilities, shell argument quoting
 │   ├── env.go           # .env loader
-│   ├── helpers.go       # JSON encoding utilities
 │   └── go.mod
 ├── frontend/
 │   └── src/
@@ -84,8 +101,10 @@ See [QUICKSTART.md](QUICKSTART.md).
 │           ├── Console.tsx             # Live msfconsole terminal
 │           ├── ReportPage.tsx          # Per-session engagement report
 │           ├── ProjectReportPage.tsx   # Aggregated project-level report
-│           └── TopographyPage.tsx      # Graphical network topology map
+│           ├── TopographyPage.tsx      # Graphical network topology map
+│           └── HandshakeCapturePanel.tsx # WiFi monitor mode, AP scan, handshake capture
 ├── docs/
+│   └── DEVELOPMENT.md   # Architecture and developer guide
 ├── start.sh             # Start backend + frontend dev server together
 ├── install.sh           # Build frontend + binary for production
 ├── QUICKSTART.md
@@ -118,9 +137,13 @@ Open Session
   │
   ├─► 5. Post Exploitation       Quick commands + recommended modules + loot
   │
-  ├─► 6. Password Attacks        Hashcat (WiFi), Hydra (services)
+  ├─► 6. Active Directory        Domain enum, cred attacks, lateral movement, ADCS
   │
-  └─► 7. Report                  Per-session structured report (PDF)
+  ├─► 7. Password Attacks        Hashcat (WiFi), Hydra (services), WPScan
+  │
+  ├─► 8. Directory Busting       Feroxbuster recursive content discovery
+  │
+  └─► 9. Report                  Per-session structured report (PDF)
 ```
 
 The MSF Console is always visible alongside the action panels. Commands typed there go directly to the session's msfconsole process; output from any panel action also streams through the console.
@@ -165,25 +188,37 @@ The MSF Console is always visible alongside the action panels. Commands typed th
 | POST | `/api/sessions/{id}/cve-analysis` | Run CVE analysis |
 | GET | `/api/sessions/{id}/cve-results` | Retrieve stored CVE results |
 | POST | `/api/sessions/{id}/cve-results` | Save CVE results to database |
+| GET | `/api/sessions/{id}/searchsploit` | Search Exploit-DB (with DB fallback) |
+| GET | `/api/sessions/{id}/searchsploit-results` | Retrieve stored searchsploit results |
 | POST | `/api/sessions/{id}/shell` | Send command to msfconsole |
 | GET | `/api/sessions/{id}/msf-sessions` | List active MSF sessions |
 | POST | `/api/sessions/{id}/loot` | Save loot from post-ex output |
 | GET | `/api/sessions/{id}/loot` | Retrieve session loot |
 | GET | `/api/sessions/{id}/notes` | Retrieve session notes |
 | POST | `/api/sessions/{id}/notes` | Save session notes |
-| GET | `/api/sessions/{id}/searchsploit` | Search Exploit-DB |
 | POST | `/api/sessions/{id}/bruteforce` | Start Hydra bruteforce |
 | GET | `/api/sessions/{id}/bruteforce` | Poll bruteforce status |
 | DELETE | `/api/sessions/{id}/bruteforce` | Stop bruteforce |
 | POST | `/api/sessions/{id}/hashcat` | Start hashcat job |
 | GET | `/api/sessions/{id}/hashcat` | Poll hashcat status |
 | DELETE | `/api/sessions/{id}/hashcat` | Stop hashcat job |
+| POST | `/api/sessions/{id}/ferox` | Start feroxbuster scan |
+| GET | `/api/sessions/{id}/ferox` | Poll feroxbuster status |
+| DELETE | `/api/sessions/{id}/ferox` | Stop feroxbuster |
+| GET | `/api/sessions/{id}/ferox-results` | Retrieve stored ferox results |
+| POST | `/api/sessions/{id}/wpscan` | Start WPScan |
+| GET | `/api/sessions/{id}/wpscan` | Poll WPScan status |
+| DELETE | `/api/sessions/{id}/wpscan` | Stop WPScan |
+| POST | `/api/sessions/{id}/handshakes` | Upload or list handshake files |
+| GET | `/api/sessions/{id}/handshakes` | List captured handshakes |
+| DELETE | `/api/sessions/{id}/handshakes/{file}` | Delete a handshake file |
 
 ### Other
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/ws?session={id}` | WebSocket — live msfconsole stream |
 | GET | `/api/network` | Local network interfaces |
+| GET | `/api/wordlists` | Available username and password wordlists |
 | GET | `/api/health` | Health / auth check |
 
 ---
@@ -214,7 +249,10 @@ ALLOWED_ORIGIN=https://your-domain     # restrict WebSocket origin in production
 cd frontend
 npm run build          # output → frontend/build/
 
-# 2. Build the Go backend (serves API + static files on :8080)
+# 2. Copy frontend build into backend/ui/ (required before go build)
+rm -rf ../backend/ui && cp -r build ../backend/ui
+
+# 3. Build the Go backend (serves API + static files on :8080)
 cd ../backend
 go build -o bagaholdin .
 ./bagaholdin
@@ -234,8 +272,9 @@ The binary serves the React build as static files. Only port 8080 needs to be ex
 ## Security Notes
 
 - All protected routes require a valid JWT cookie set at login.
-- Passwords are hashed with bcrypt (cost 10).
+- Authentication uses Linux PAM — the same credentials as your Linux system login.
 - Auth routes are rate-limited to 10 requests per minute per IP.
+- All mutating session-action routes are rate-limited to 120 requests per minute per IP.
 - The WebSocket endpoint validates the JWT before upgrading.
 - Set `COOKIE_SECURE=true` and `ALLOWED_ORIGIN` when deploying over HTTPS.
 - **Only use this tool on networks you own or have explicit written authorisation to test.**

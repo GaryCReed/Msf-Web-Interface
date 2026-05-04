@@ -171,16 +171,29 @@ func buildHydraArgs(target string, req BruteforceRequest, outFile string) ([]str
 	// Service + optional module params
 	svc := req.Service
 	if svc == "http-post-form" || svc == "http-get-form" {
-		url := req.FormURL
-		if url == "" {
-			url = "/"
+		formURL := strings.TrimSpace(req.FormURL)
+		if formURL == "" {
+			formURL = "/"
 		}
-		params := req.FormParams
-		cond := req.FormCondition
+		// Strip full URL prefix if the user pasted a URL instead of a path
+		if idx := strings.Index(formURL, "://"); idx != -1 {
+			rest := formURL[idx+3:]
+			if slash := strings.Index(rest, "/"); slash != -1 {
+				formURL = rest[slash:]
+			} else {
+				formURL = "/"
+			}
+		}
+		params := strings.TrimSpace(req.FormParams)
+		if params == "" {
+			return nil, fmt.Errorf("POST params required for %s (e.g. user=^USER^&pass=^PASS^)", svc)
+		}
+		cond := strings.TrimSpace(req.FormCondition)
 		if cond == "" {
 			cond = "F=incorrect"
 		}
-		args = append(args, svc, fmt.Sprintf("%s:%s:%s", url, params, cond))
+		formArg := fmt.Sprintf("%s:%s:%s", formURL, params, cond)
+		args = append(args, svc, formArg)
 	} else {
 		args = append(args, svc)
 	}
@@ -288,6 +301,25 @@ func runHydra(sessionID int, target string, req BruteforceRequest, db *DB, userI
 	outFile := fmt.Sprintf("/tmp/hydra-%d.txt", sessionID)
 	os.Remove(outFile)
 
+	// Strip any http(s):// prefix and extract the host and port.
+	// Hydra requires the host as a plain IP/hostname; port must come from -s.
+	if idx := strings.Index(target, "://"); idx != -1 {
+		rest := target[idx+3:]
+		if slash := strings.Index(rest, "/"); slash != -1 {
+			rest = rest[:slash]
+		}
+		target = rest
+	}
+	// If target is host:port, split and promote the port to req.Port (when not already set).
+	if colonIdx := strings.LastIndex(target, ":"); colonIdx != -1 {
+		if p, err2 := strconv.Atoi(target[colonIdx+1:]); err2 == nil && p > 0 && p <= 65535 {
+			if req.Port == 0 {
+				req.Port = p
+			}
+			target = target[:colonIdx]
+		}
+	}
+
 	args, err := buildHydraArgs(target, req, outFile)
 	job := getBruteJob(sessionID)
 	if err != nil {
@@ -304,7 +336,7 @@ func runHydra(sessionID int, target string, req BruteforceRequest, db *DB, userI
 
 	job.mu.Lock()
 	job.cmd = cmd
-	job.output = append(job.output, fmt.Sprintf("[*] hydra %s", strings.Join(args, " ")))
+	job.output = append(job.output, fmt.Sprintf("[*] hydra %s", shellQuoteArgs(args)))
 	job.mu.Unlock()
 
 	if err := cmd.Start(); err != nil {

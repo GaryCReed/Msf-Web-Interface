@@ -42,13 +42,35 @@ cd frontend && npm start     # opens :3000, hot reloads on save
 `backend/main.go` — HTTP router setup, all handler registrations, server startup, browser launch.
 
 Key functions:
-- `baseDir()` — resolves the directory the binary lives in; used to anchor `.env` and SQLite paths so the binary can be run from any working directory
+- `baseDir()` — resolves the directory the binary lives in; used to anchor `.env`, SQLite path, and persistent data directories so the binary can be run from any working directory
 - `init()` — loads `.env` from `baseDir()/.env`, re-reads `JWT_SECRET` after `.env` is loaded
-- `main()` — mounts router, serves embedded static files, starts `http.ListenAndServe(:8080)`, opens default browser after 500 ms
+- `main()` — mounts router, serves embedded static files, initialises handshake dir, starts `http.ListenAndServe(:8080)`, opens default browser after 500 ms
+
+### Backend Source Files
+
+| File | Purpose |
+|---|---|
+| `main.go` | Router, all HTTP handlers, server entry point |
+| `db.go` | Database models, queries (SQLite + PostgreSQL + in-memory) |
+| `auth.go` | JWT generation, validation, PAM authentication, cookie helpers |
+| `websocket.go` | WebSocket upgrade, session fan-out broadcaster |
+| `executor.go` | msfconsole process lifecycle, stdin/stdout fan-out, auto-restart |
+| `scanner.go` | nmap execution, XML parsing, OS/service/gateway detection |
+| `loot.go` | Post-ex output parsing, loot XML persistence, DB upsert |
+| `bruteforce.go` | Hydra argument builder, job management, output parser |
+| `hashcat.go` | Hashcat WPA cracking job management, hex password decode |
+| `wifi.go` | Monitor mode, AP scan, handshake capture, WPA3-Transition rogue AP |
+| `handshake.go` | Handshake file registry, disk persistence, restore on startup |
+| `wpscan.go` | WPScan execution, block-accumulation output parser |
+| `feroxbuster.go` | Feroxbuster execution, result persistence, DB save |
+| `helpers.go` | JSON encode/decode, shell argument quoting |
+| `env.go` | .env loader |
 
 ### Router
 
 All protected routes sit under Chi middleware that validates the JWT cookie. Public routes: `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/ws` (WebSocket, validates JWT before upgrade).
+
+Auth routes are rate-limited to 10 req/min per IP. All mutating session-action routes are rate-limited to 120 req/min per IP.
 
 ### Database
 
@@ -62,31 +84,49 @@ All protected routes sit under Chi middleware that validates the JWT cookie. Pub
 
 Default: SQLite file `bagaholdin.db` created next to the binary.
 
-**Schema tables:** `users`, `sessions`, `projects`, `project_hosts`, `exploits`, `commands`, `cve_results`
+**Schema tables:**
 
-`SaveCVEResults` / `GetCVEResults` store CVE analysis as a raw JSON blob (one row per session, upsert on conflict).
+| Table | Purpose |
+|---|---|
+| `users` | Account credentials (bcrypt) |
+| `sessions` | Engagement sessions (host, project link) |
+| `projects` | Project groups |
+| `project_hosts` | Hosts discovered per project |
+| `cve_results` | CVE analysis JSON blobs (one row per session) |
+| `vuln_results` | Nmap vuln scan JSON blobs (one row per session) |
+| `enum_results` | Service enumeration JSON blobs (one row per session) |
+| `loot_data` | Serialised loot XML (one row per session) |
+| `searchsploit_results` | Searchsploit output (one row per session) |
+| `ferox_results` | Feroxbuster found URLs + output (one row per session) |
+
+All result tables use `ON CONFLICT (session_id) DO UPDATE` (upsert). Results survive restarts and logouts.
 
 ### Authentication
 
 `backend/auth.go` — Linux PAM authentication via `authenticateLinuxUser()`. JWT signed with `JWT_SECRET` (HS256, 24 h expiry), stored as an httpOnly cookie. `COOKIE_SECURE=true` enables the Secure flag for HTTPS deployments.
 
-Auth routes are rate-limited to 10 req/min per IP via `httprate`. All mutating session-action routes are rate-limited to 120 req/min per IP.
-
 ### WebSocket / MSF Console
 
 `backend/websocket.go` — upgrades the connection, validates JWT, fans output from the session's msfconsole executor to all connected clients.
 
-`backend/executor.go` — manages one `msfconsole -q` process per session. Commands sent via `ExecuteCommand(cmd)` write to msfconsole stdin; stdout/stderr are fanned out to a broadcaster. Handles reconnection and process restart.
+`backend/executor.go` — manages one `msfconsole -q` process per session. Commands sent via `ExecuteCommand(cmd)` write to msfconsole stdin; stdout/stderr are fanned out to a broadcaster. Auto-restarts on crash (up to 3 attempts with back-off). Handles transparent reconnect — subscriber channels stay alive across restarts.
 
 ### Scanner
 
-`backend/scanner.go` — wraps nmap. Vuln scan runs asynchronously: nmap writes XML to `/tmp/msf-scans/<ip>.xml` then the handler parses services, OS info, and NSE script output. Results polled via `GET /api/sessions/{id}/vuln-scan`.
+`backend/scanner.go` — wraps nmap. Vuln scan runs asynchronously: nmap writes XML to `/tmp/msf-scans/<ip>.xml` then the handler parses services, OS info, and NSE script output. Results polled via `GET /api/sessions/{id}/vuln-scan` and persisted to `vuln_results` table.
 
-CVE analysis (`handleCVEAnalysis`) greps the MSF module tree for matching CVE strings and returns module paths alongside the CVE identifiers found in the nmap XML.
+**Gateway detection** (`systemGateway`):
+1. Try `ip route show <network>` for a specific route with `via` inside the subnet
+2. Fall back to `ip route show default` only if the default gateway is inside the subnet
+3. Final fallback: `x.x.x.1` derived from the CIDR
+
+The gateway is always force-added as a scan target even when it is also a local IP (e.g. Docker host bridge).
+
+CVE analysis (`handleCVEAnalysis`) fetches from NVD API and greps the local MSF module tree. Results persisted to `cve_results` table with DB fallback on re-load.
 
 ### Loot System
 
-`backend/loot.go` — all post-exploitation artefacts are written to `/tmp/loot-{sessionID}.xml` as a structured XML document.
+`backend/loot.go` — all post-exploitation artefacts are stored as a structured XML document. The XML is saved to `<baseDir>/loot-<sessionID>.xml` on disk AND upserted into the `loot_data` database table on every write. On load, the DB is the primary source if the file is missing.
 
 **Loot item types and their sources:**
 
@@ -105,9 +145,9 @@ CVE analysis (`handleCVEAnalysis`) greps the MSF module tree for matching CVE st
 | `privilege_escalation` | getsystem result |
 | `is_admin` | is_admin output |
 | `environment` | env / set output (filtered for secret/key/pass/token) |
-| `wifi_handshake` | Handshake capture complete |
+| `wifi_handshake` | Handshake capture; updated with cracked password by hashcat |
 | `sqlmap_finding` | sqlmap scan findings |
-| `wpscan_finding` | wpscan findings |
+| `wpscan_finding` | wpscan findings (full block including detail lines) |
 | `ad_discovery` | nmap ldap-rootdse / smb-os-discovery output |
 | `kerbrute_users` | kerbrute VALID USERNAME lines |
 | `smb_enum` | enum4linux / enum4linux-ng output |
@@ -115,32 +155,76 @@ CVE analysis (`handleCVEAnalysis`) greps the MSF module tree for matching CVE st
 
 `AppendLoot(sessionID, target, cmd, output)` is the main entry point — it calls `extractLoot()` which dispatches to per-type parsers based on the `cmd` string.
 
+`SetWifiHandshakePassword(sessionID, target, ssid, bssid, password)` — finds `wifi_handshake` loot entries matching the BSSID and stamps them with the cracked password. Called by hashcat after a successful crack.
+
 ### Async Job Pattern
 
-Long-running tools (Hydra, hashcat, sqlmap, feroxbuster, wpscan, crackmapexec) follow the same pattern:
+Long-running tools (Hydra, hashcat, sqlmap, feroxbuster, wpscan) follow the same pattern:
 
 1. `POST /sessions/{id}/tool` — start: create job struct with `cmd.Process`, store in `sync.Map`, begin goroutine that streams output to a buffer
 2. `GET /sessions/{id}/tool` — poll: return current output + done flag
 3. `DELETE /sessions/{id}/tool` — stop: call `Process.Kill()`, mark done
 
-Job state is stored in package-level `sync.Map` (not the database). State is lost on restart.
+Job state is stored in package-level `sync.Map` (not the database). Output accumulated during the run is also saved to the database (feroxbuster, searchsploit) so results survive a restart.
 
-### File Paths (all in /tmp)
+### Meterpreter Post-Exploitation
+
+`handleShellCommand` writes commands to msfconsole stdin via `ExecuteCommand` and collects output for up to 10 seconds (800 ms idle timeout).
+
+**`shell <cmd>` channel issue:** In non-TTY mode (piped stdin/stdout), msfconsole's channel I/O for `shell <cmd>` only produces "Process N created. Channel N created." — the subprocess output does not reach the HTTP response. The frontend handles this with a 3-step sequence:
+
+1. Send `shell` (standalone) — enters bash in channel-interact mode
+2. Send `<cmd>` through the active channel — output flows back through channel stdout to msfconsole stdout to HTTP response
+3. Send `exit` — closes bash, returns to meterpreter prompt
+
+**Bash sub-shell tracking:** `inBashSubshellRef` tracks when the post-ex panel has entered an interactive bash sub-shell (via standalone `shell`). Before sending any native meterpreter command, if this flag is set, `exit` is sent first to return to the meterpreter prompt.
+
+### Bruteforce (Hydra)
+
+`backend/bruteforce.go` — `buildHydraArgs` constructs the hydra argv slice passed to `exec.Command` (no shell involved).
+
+For `http-post-form` and `http-get-form`:
+- `form_url` is required; any `http://host/` prefix is stripped to a bare path
+- `form_params` must be non-empty (validated; error returned if missing)
+- `form_condition` defaults to `F=incorrect` if empty
+- Form arg format: `path:POST_data:condition` — passed as a single argv element, so `&` in params is safe
+
+Target sanitisation: any `http(s)://` prefix is stripped and any embedded `host:port` is split — the port is promoted to the `-s PORT` flag so Hydra receives a bare IP, not `[IP:PORT]:80`.
+
+The displayed command uses `shellQuoteArgs` — args containing `&`, `^`, spaces, or other shell-special characters are single-quoted so copying the command to a terminal works correctly.
+
+### WiFi / Handshake
+
+`backend/handshake.go` — handshake files (`.cap`, `.22000`) are stored in `<baseDir>/handshakes/` (persistent across restarts). On startup, `restoreHandshakesFromDisk()` walks the directory and re-populates the in-memory registry.
+
+`backend/wifi.go` — rogue AP for WPA3-Transition downgrade uses hostapd-mana. The rogue interface is set to managed mode before configuring (`iw dev <iface> set type managed`). hostapd config uses `auth_algs=1` (WPA only, forces downgrade away from SAE) and `wpa_pairwise=TKIP CCMP`.
+
+`backend/hashcat.go` — WPA cracking uses hashcat mode 22000. After cracking, the raw password token is decoded with `hexPlainDecode` (strips `$HEX[...]` wrapper; also tries raw hex decode guarded by `isPrintableASCII` to avoid corrupting numeric passwords). The cracked password is then stamped onto all matching `wifi_handshake` loot entries via `SetWifiHandshakePassword`.
+
+### WPScan
+
+`backend/wpscan.go` — output is processed with a block accumulator that buffers `[+]/[!]/[i]` header lines together with their following `| detail` lines. The full block (header + details) is saved as a single `wpscan_finding` loot entry. Single-line password/user finds are saved immediately without buffering.
+
+### Feroxbuster
+
+`backend/feroxbuster.go` — results are saved to both the `ferox_results` database table and an in-memory job buffer. On a new scan, `db.DeleteFeroxResults(sessionID)` clears the previous results. The output file is read as the authoritative source after the process exits (deduplication by URL).
+
+### File Paths
 
 | Purpose | Path |
 |---|---|
 | Nmap scan XML | `/tmp/msf-scans/<ip>.xml` |
 | Nmap raw output | `/tmp/msf-scans/<ip>-output.txt` |
-| Loot document | `/tmp/loot-<sessionID>.xml` |
-| Session notes | `/tmp/msf-notes-<sessionID>.txt` |
 | Hydra output | `/tmp/hydra-<sessionID>.txt` |
 | SQLmap output | `/tmp/sqlmap-<sessionID>/` |
 | Feroxbuster output | `/tmp/ferox-<sessionID>/results.txt` |
 | Hashcat cracked | `/tmp/hashcat-<sessionID>-cracked.txt` |
 | WiFi captures | `/tmp/wifi-cap-<sessionID>-*.cap` |
 | WiFi hashes | `/tmp/wifi-cap-<sessionID>-*.22000` |
+| Handshakes (persistent) | `<baseDir>/handshakes/` |
+| Loot XML (persistent) | `<baseDir>/loot-<sessionID>.xml` |
 
-On clean shutdown (`SIGINT`/`SIGTERM`) these directories are removed automatically.
+On clean shutdown (`SIGINT`/`SIGTERM`) the `/tmp` directories are removed automatically. Handshakes and loot XML under `<baseDir>` are kept.
 
 ---
 
@@ -161,15 +245,32 @@ React 18 + TypeScript, bootstrapped with Create React App.
 | `ReportPage.tsx` | Per-session professional PDF report |
 | `ProjectReportPage.tsx` | Aggregated project-level PDF report |
 | `TopographyPage.tsx` | Draggable SVG network topology map |
-| `HandshakeCapturePanel.tsx` | WiFi monitor mode, AP scan, handshake capture |
+| `HandshakeCapturePanel.tsx` | WiFi monitor mode, AP scan, handshake capture, WPA3-Transition detection |
 
 ### State Persistence
 
-- **CVE results** — SQLite (`cve_results` table); localStorage used as a fast read-back cache
-- **Vuln scan output** — localStorage only (`session-{id}-vuln`)
-- **Enumeration results** — localStorage only (`session-{id}-enum`)
-- **OS info** — localStorage only (`session-{id}-os`)
-- **Topology drag positions + node labels** — localStorage (`topology-{projectId}-pos`, `topology-{projectId}-labels`)
+All significant result types are persisted to the database and survive restarts and logouts:
+
+| Data | Storage |
+|---|---|
+| CVE results | `cve_results` table (JSON blob) |
+| Vuln scan output | `vuln_results` table (JSON blob) |
+| Enumeration results | `enum_results` table (JSON blob) |
+| Loot | `loot_data` table (XML blob) + `<baseDir>/loot-<id>.xml` |
+| Searchsploit results | `searchsploit_results` table |
+| Feroxbuster results | `ferox_results` table (JSON blob) |
+| Topology positions/labels | localStorage (`topology-{projectId}-pos/labels`) |
+| OS info | localStorage (`session-{id}-os`) |
+
+All DB tables use upsert (`ON CONFLICT DO UPDATE`) so re-running a scan always reflects the latest state.
+
+### Post-Exploitation Panel
+
+The post-ex panel has two layers of session state:
+- `interactedSessionRef` / `interactedSession` — tracks which MSF session is currently entered (via `sessions -i <id>`)
+- `inBashSubshellRef` — tracks whether a standalone `shell` command has been sent (dropping into an interactive bash sub-shell)
+
+Commands of the form `shell <cmd>` (with arguments) use the 3-step channel-interact sequence rather than sending `shell <cmd>` directly, because non-TTY msfconsole does not stream channel stdout back to the HTTP response for combined `shell cmd` calls.
 
 ### CSS Variables
 
@@ -197,7 +298,7 @@ Dark theme defined in `frontend/src/index.css` as CSS custom properties. Report 
 
 1. **Backend handler** (`backend/main.go` or a new `backend/<tool>.go`):
    - Follow the async start/poll/stop pattern for long-running tools
-   - For short tools, synchronous handler with `context.WithTimeout` is sufficient
+   - For short tools, a synchronous handler with `context.WithTimeout` is sufficient
    - Parse output and call `AppendLoot` or a new `Append*` function in `loot.go`
 
 2. **Loot parser** (`backend/loot.go`):
@@ -205,12 +306,17 @@ Dark theme defined in `frontend/src/index.css` as CSS custom properties. Report 
    - Add an `Append<Tool>` function that parses raw output into `[]LootField`
    - Append a `LootItem` with the appropriate `Type`, `Source`, `Timestamp`, and `Fields`
 
-3. **Route** (`backend/main.go`):
+3. **Persistence** (if results should survive restart):
+   - Add a `Save<Tool>Results` / `Get<Tool>Results` method pair to `db.go`
+   - Add the table to the schema in both `Migrate()` and the idempotent `CREATE TABLE IF NOT EXISTS` block
+   - Call save after the run completes and load in the GET handler with DB fallback
+
+4. **Route** (`backend/main.go`):
    - Register under the authenticated group: `r.Post("/sessions/{id}/tool", handleStartTool(db))`
 
-4. **Frontend panel** (`frontend/src/components/SessionDetail.tsx`):
+5. **Frontend panel** (`frontend/src/components/SessionDetail.tsx`):
    - Add a new tab ID and label to `ACTIONS`
    - Add `{activeAction === N && <ToolPanel ... />}` in the render
    - Update the console-hide condition if the panel should be full-width
 
-5. **Rebuild**: `npm run build` → `rm -rf backend/ui && cp -r frontend/build backend/ui` → `go build -o bagaholdin .`
+6. **Rebuild**: `npm run build` → `rm -rf backend/ui && cp -r frontend/build backend/ui` → `go build -o bagaholdin .`
