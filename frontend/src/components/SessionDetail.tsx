@@ -664,7 +664,7 @@ function ActiveDirectoryPanel({ sessionId, targetHost }: { sessionId: number; ta
   const [e4lOutput,     setE4lOutput]     = useState('');
   const [e4lSaved,      setE4lSaved]      = useState(false);
 
-  // CrackMapExec state
+  // CrackMapExec (single-protocol) state
   const [cmeProto,      setCmeProto]      = useState('smb');
   const [cmeUser,       setCmeUser]       = useState('');
   const [cmePass,       setCmePass]       = useState('');
@@ -673,6 +673,22 @@ function ActiveDirectoryPanel({ sessionId, targetHost }: { sessionId: number; ta
   const [cmeOutput,     setCmeOutput]     = useState('');
   const [cmeSaved,      setCmeSaved]      = useState(false);
   const cmeInterval                       = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // NXC Sweep state
+  const [nxcTarget,     setNxcTarget]     = useState('');
+  const [nxcUser,       setNxcUser]       = useState('');
+  const [nxcPass,       setNxcPass]       = useState('');
+  const [nxcHash,       setNxcHash]       = useState('');
+  const [nxcDomain,     setNxcDomain]     = useState('');
+  const [nxcLocalAuth,  setNxcLocalAuth]  = useState(false);
+  const [nxcProtos,     setNxcProtos]     = useState<Set<string>>(new Set(['smb','ldap','winrm','rdp','ssh','mssql','ftp','wmi','ldaps']));
+  const [nxcRunning,    setNxcRunning]    = useState(false);
+  const [nxcOutput,     setNxcOutput]     = useState<string[]>([]);
+  const [nxcFound,      setNxcFound]      = useState<{protocol:string;host:string;port:number;name:string;user:string;detail:string;raw:string}[]>([]);
+  const [nxcDone,       setNxcDone]       = useState(false);
+  const [nxcError,      setNxcError]      = useState('');
+  const nxcInterval                       = useRef<ReturnType<typeof setInterval> | null>(null);
+  const nxcOutputRef                      = useRef<HTMLDivElement>(null);
 
   // Load wordlists and domain from loot on mount
   useEffect(() => {
@@ -797,6 +813,55 @@ function ActiveDirectoryPanel({ sessionId, targetHost }: { sessionId: number; ta
     setCmeRunning(false);
   };
 
+  const pollNxcSweep = () => {
+    axios.get(`/api/sessions/${sessionId}/nxcsweep`).then(r => {
+      setNxcOutput(r.data.output || []);
+      setNxcFound(r.data.found || []);
+      if (r.data.error) setNxcError(r.data.error);
+      if (r.data.status === 'done') {
+        setNxcRunning(false); setNxcDone(true);
+        if (nxcInterval.current) { clearInterval(nxcInterval.current); nxcInterval.current = null; }
+      }
+    }).catch(() => {});
+  };
+
+  const startNxcSweep = async () => {
+    setNxcRunning(true); setNxcDone(false); setNxcError('');
+    setNxcOutput([]); setNxcFound([]);
+    try {
+      await axios.post(`/api/sessions/${sessionId}/nxcsweep`, {
+        target: nxcTarget.trim() || undefined,
+        username: nxcUser, password: nxcPass, hash: nxcHash,
+        domain: nxcDomain, local_auth: nxcLocalAuth,
+        protocols: Array.from(nxcProtos),
+      });
+      nxcInterval.current = setInterval(pollNxcSweep, 2000);
+    } catch (err: any) {
+      setNxcError(err.response?.data?.error || err.message || 'Failed');
+      setNxcRunning(false);
+    }
+  };
+
+  const stopNxcSweep = async () => {
+    await axios.delete(`/api/sessions/${sessionId}/nxcsweep`).catch(() => {});
+    if (nxcInterval.current) { clearInterval(nxcInterval.current); nxcInterval.current = null; }
+    setNxcRunning(false);
+  };
+
+  const toggleNxcProto = (p: string) => {
+    setNxcProtos(prev => {
+      const next = new Set(prev);
+      if (next.has(p)) { if (next.size > 1) next.delete(p); }
+      else next.add(p);
+      return next;
+    });
+  };
+
+  // Auto-scroll nxc sweep output when new lines arrive
+  useEffect(() => {
+    if (nxcOutputRef.current) nxcOutputRef.current.scrollTop = nxcOutputRef.current.scrollHeight;
+  }, [nxcOutput]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="action-panel action-panel-ad">
       <div className="action-panel-header">
@@ -903,7 +968,104 @@ function ActiveDirectoryPanel({ sessionId, targetHost }: { sessionId: number; ta
         )}
       </div>
 
-      {/* ── CrackMapExec ── */}
+      {/* ── NXC Sweep ── */}
+      <div className="ad-kerbrute-section">
+        <div className="ad-kerbrute-header">NXC Sweep</div>
+
+        {/* Protocol toggles */}
+        <div className="ad-kerbrute-row" style={{flexWrap:'wrap', gap:6}}>
+          {['smb','ldap','ldaps','winrm','rdp','ssh','mssql','ftp','wmi'].map(p => (
+            <label key={p} className="sm-check" style={{fontSize:'11px'}}>
+              <input type="checkbox" checked={nxcProtos.has(p)} onChange={() => toggleNxcProto(p)} />
+              {p.toUpperCase()}
+            </label>
+          ))}
+        </div>
+
+        {/* Credentials */}
+        <div className="ad-kerbrute-row">
+          <label className="ad-kerbrute-label">Target</label>
+          <input className="ad-kerbrute-input" value={nxcTarget} onChange={e => setNxcTarget(e.target.value)}
+            placeholder={`${targetHost || 'IP'} (blank = session host)`} spellCheck={false} style={{maxWidth:180}} />
+          <label className="ad-kerbrute-label" style={{minWidth:'auto'}}>Domain</label>
+          <input className="ad-kerbrute-input" value={nxcDomain} onChange={e => setNxcDomain(e.target.value)}
+            placeholder="CORP" spellCheck={false} style={{maxWidth:110}} />
+        </div>
+        <div className="ad-kerbrute-row">
+          <label className="ad-kerbrute-label">Username</label>
+          <input className="ad-kerbrute-input" value={nxcUser} onChange={e => setNxcUser(e.target.value)}
+            placeholder="admin" spellCheck={false} />
+          <label className="ad-kerbrute-label" style={{minWidth:'auto'}}>Password</label>
+          <input className="ad-kerbrute-input" type="password" value={nxcPass} onChange={e => setNxcPass(e.target.value)}
+            placeholder="or use hash below" />
+        </div>
+        <div className="ad-kerbrute-row">
+          <label className="ad-kerbrute-label">NT Hash</label>
+          <input className="ad-kerbrute-input" value={nxcHash} onChange={e => setNxcHash(e.target.value)}
+            placeholder="aad3b435...31d6cfe0 (pass-the-hash)" spellCheck={false} />
+          <label className="sm-check" style={{marginLeft:10,fontSize:'11px'}}>
+            <input type="checkbox" checked={nxcLocalAuth} onChange={e => setNxcLocalAuth(e.target.checked)} />
+            --local-auth
+          </label>
+        </div>
+
+        {/* Controls */}
+        <div className="ad-kerbrute-row">
+          {nxcRunning ? (
+            <button className="btn-run-scan" onClick={stopNxcSweep}>■ Stop</button>
+          ) : (
+            <button className="btn-run-scan" onClick={startNxcSweep}>▶ Run NXC Sweep</button>
+          )}
+          {nxcRunning && <span className="cve-metrics-loading"><span className="btn-spinner"/> Sweeping…</span>}
+          {nxcDone && !nxcRunning && <span className="ad-loot-saved">✓ Done</span>}
+          {nxcError && <span style={{color:'var(--red)',fontSize:'11px'}}>{nxcError}</span>}
+        </div>
+
+        {/* Findings table */}
+        {nxcFound.length > 0 && (
+          <div style={{marginTop:8}}>
+            <div className="ad-output-label">Findings ({nxcFound.length})</div>
+            <table className="loot-table" style={{marginTop:4}}>
+              <thead><tr><th>Proto</th><th>Host</th><th>Port</th><th>Name</th><th>User / Detail</th></tr></thead>
+              <tbody>
+                {nxcFound.map((f, i) => (
+                  <tr key={i}>
+                    <td className="loot-source">{f.protocol.toUpperCase()}</td>
+                    <td className="loot-mono">{f.host}</td>
+                    <td className="loot-mono">{f.port}</td>
+                    <td>{f.name}</td>
+                    <td className="loot-mono" style={{color: f.detail.includes('Pwn3d') ? 'var(--red)' : undefined}}>
+                      {f.user}{f.detail ? ` ${f.detail}` : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Output */}
+        {nxcOutput.length > 0 && (
+          <div className="ad-output-wrap" style={{marginTop:8}}>
+            <div className="ad-output-label">Output</div>
+            <div className="ad-output" ref={nxcOutputRef} style={{maxHeight:260,overflowY:'auto',whiteSpace:'pre-wrap',fontFamily:'monospace',fontSize:'11px'}}>
+              {nxcOutput.map((line, i) => {
+                const isFound = line.includes('[+]');
+                const isSkip  = line.includes('closed/filtered');
+                const isOpen  = line.startsWith('[*] Port') && line.includes('open');
+                return (
+                  <div key={i} style={{
+                    color: isFound ? 'var(--green)' : isSkip ? '#555' : isOpen ? '#7af' : undefined,
+                    fontWeight: isFound ? 700 : undefined,
+                  }}>{line}</div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── CrackMapExec (single protocol) ── */}
       <div className="ad-kerbrute-section">
         <div className="ad-kerbrute-header">CrackMapExec</div>
         <div className="ad-kerbrute-row">
@@ -4308,7 +4470,6 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
       .then(res => setNotesText(res.data.notes || ''))
       .catch(() => {});
   }, [activeAction, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
-
 
   // Apply completed scan results (shared by poll and resume-on-mount paths).
   const applyVulnResult = (data: any) => {
