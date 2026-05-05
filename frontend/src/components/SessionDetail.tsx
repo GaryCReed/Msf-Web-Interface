@@ -5680,11 +5680,53 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
                     </div>
                   )}
 
+                  {/* NXC / CME Findings */}
+                  {lootItems.filter(i => i.type === 'nxc_finding' || i.type === 'crackmapexec_finding').length > 0 && (
+                    <div className="loot-section">
+                      <div className="loot-section-title loot-nxc">NXC / CME Findings</div>
+                      <table className="loot-table">
+                        <thead>
+                          <tr><th>Proto</th><th>Host</th><th>Port</th><th>Machine</th><th>User / Credential</th><th>Status</th><th>Time</th></tr>
+                        </thead>
+                        <tbody>
+                          {lootItems.filter(i => i.type === 'nxc_finding' || i.type === 'crackmapexec_finding').map((item, idx) => {
+                            const f: Record<string,string> = Object.fromEntries((item.fields||[]).map((f:any) => [f.name, f.value]));
+                            const isPwned = (f.status || f.Finding || '').includes('Pwn3d');
+                            if (item.type === 'nxc_finding') {
+                              return (
+                                <tr key={idx}>
+                                  <td className="loot-source">{f.protocol || '—'}</td>
+                                  <td className="loot-mono">{f.host || '—'}</td>
+                                  <td className="loot-mono">{f.port || '—'}</td>
+                                  <td>{f.machine || '—'}</td>
+                                  <td className="loot-mono">{f.user || '—'}</td>
+                                  <td className="loot-mono" style={{color: isPwned ? 'var(--red)' : 'var(--green)', fontWeight: isPwned ? 700 : undefined}}>
+                                    {f.status || '✓ Auth OK'}
+                                  </td>
+                                  <td className="loot-ts">{item.timestamp?.slice(0,19).replace('T',' ')}</td>
+                                </tr>
+                              );
+                            }
+                            // crackmapexec_finding: raw line in "Finding" field
+                            return (
+                              <tr key={idx}>
+                                <td className="loot-source" colSpan={3}>{item.source}</td>
+                                <td colSpan={2} className="loot-mono" style={{color: isPwned ? 'var(--red)' : undefined}}>{f.Finding || '—'}</td>
+                                <td style={{color: isPwned ? 'var(--red)' : 'var(--green)'}}>{isPwned ? '(Pwn3d!)' : '✓'}</td>
+                                <td className="loot-ts">{item.timestamp?.slice(0,19).replace('T',' ')}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
                   {/* Other */}
-                  {lootItems.filter(i => !['bruteforce_credential','session_credential','credential','system_info','current_user','user_account','privileges','privilege_escalation','is_admin','groups','network_hosts','environment','wifi_handshake','sqlmap_finding','wpscan_finding'].includes(i.type)).length > 0 && (
+                  {lootItems.filter(i => !['bruteforce_credential','session_credential','credential','system_info','current_user','user_account','privileges','privilege_escalation','is_admin','groups','network_hosts','environment','wifi_handshake','sqlmap_finding','wpscan_finding','nxc_finding','crackmapexec_finding'].includes(i.type)).length > 0 && (
                     <div className="loot-section">
                       <div className="loot-section-title loot-other">Other</div>
-                      {lootItems.filter(i => !['bruteforce_credential','session_credential','credential','system_info','current_user','user_account','privileges','privilege_escalation','is_admin','groups','network_hosts','environment','wifi_handshake','sqlmap_finding','wpscan_finding'].includes(i.type)).map((item, idx) => (
+                      {lootItems.filter(i => !['bruteforce_credential','session_credential','credential','system_info','current_user','user_account','privileges','privilege_escalation','is_admin','groups','network_hosts','environment','wifi_handshake','sqlmap_finding','wpscan_finding','nxc_finding','crackmapexec_finding'].includes(i.type)).map((item, idx) => (
                         <div key={idx} className="loot-kv-block">
                           <div className="loot-kv-source">{item.source} <span className="loot-type-pill">{item.type}</span></div>
                           {(item.fields||[]).map((f:any) => (

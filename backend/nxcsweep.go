@@ -239,7 +239,23 @@ func runNxcSweep(job *NxcSweepJob, req NxcSweepRequest, sessionID int) {
 				}
 				job.mu.Unlock()
 				if finding != nil {
-					AppendCMEFindings(sessionID, req.Target, finding.Protocol, finding.Raw+"\n")
+					AppendNxcFinding(sessionID, req.Target, struct {
+						Protocol string
+						Host     string
+						Port     int
+						Name     string
+						User     string
+						Detail   string
+						Raw      string
+					}{
+						Protocol: finding.Protocol,
+						Host:     finding.Host,
+						Port:     finding.Port,
+						Name:     finding.Name,
+						User:     finding.User,
+						Detail:   finding.Detail,
+						Raw:      finding.Raw,
+					})
 				}
 			}
 		}

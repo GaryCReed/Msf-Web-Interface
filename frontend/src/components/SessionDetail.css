@@ -921,6 +921,7 @@
 .loot-wifi   { background: rgba(0,212,255,0.1);   color: var(--cyan);   border-bottom: 1px solid var(--border-cyan); }
 .loot-sqlmap { background: var(--green-dim);      color: var(--green);  border-bottom: 1px solid rgba(0,230,118,0.2); }
 .loot-wpscan { background: var(--purple-dim);     color: var(--purple); border-bottom: 1px solid rgba(181,122,247,0.2); }
+.loot-nxc    { background: rgba(255,160,0,0.1);   color: #ffa000;       border-bottom: 1px solid rgba(255,160,0,0.2); }
 .loot-other  { background: var(--bg-raised);      color: var(--text-secondary); border-bottom: 1px solid var(--border-dim); }
 
 .loot-path { font-size: 10px; color: var(--text-dim) !important; word-break: break-all; max-width: 260px; }

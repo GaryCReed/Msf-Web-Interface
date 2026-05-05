@@ -863,6 +863,45 @@ func AppendSMBEnum(sessionID int, target, output string) error {
 	return saveLootDocument(doc)
 }
 
+// AppendNxcFinding saves a single structured NXC sweep [+] finding to loot.
+// Each field is stored individually so the loot tab can render a proper table row.
+func AppendNxcFinding(sessionID int, target string, f struct {
+	Protocol string
+	Host     string
+	Port     int
+	Name     string
+	User     string
+	Detail   string
+	Raw      string
+}) error {
+	fields := []LootField{
+		{Name: "protocol", Value: strings.ToUpper(f.Protocol)},
+		{Name: "host", Value: f.Host},
+		{Name: "port", Value: fmt.Sprintf("%d", f.Port)},
+		{Name: "machine", Value: f.Name},
+		{Name: "user", Value: f.User},
+	}
+	if f.Detail != "" {
+		fields = append(fields, LootField{Name: "status", Value: f.Detail})
+	}
+	fields = append(fields, LootField{Name: "raw", Value: f.Raw})
+
+	lootMu.Lock()
+	defer lootMu.Unlock()
+
+	doc := loadLootDocument(sessionID)
+	if doc == nil {
+		doc = &LootDocument{SessionID: sessionID, Target: target}
+	}
+	doc.Items = append(doc.Items, LootItem{
+		Type:      "nxc_finding",
+		Source:    fmt.Sprintf("nxcsweep %s %s", strings.ToLower(f.Protocol), target),
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Fields:    fields,
+	})
+	return saveLootDocument(doc)
+}
+
 // AppendCMEFindings parses crackmapexec output and saves [+] success lines as loot.
 func AppendCMEFindings(sessionID int, target, proto, output string) error {
 	var fields []LootField
