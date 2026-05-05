@@ -5263,12 +5263,13 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
                                   await ensureMsfPrompt();
                                   await sendShellCmd('use post/multi/manage/shell_to_meterpreter');
                                   await sendShellCmd(`set SESSION ${s.id}`);
-                                  await sendShellCmd('set DB_ALL_PASS true');
-                                  await sendShellCmd('set DB_ALL_CREDS true');
-                                  await sendShellCmd('set DB_ALL_USERS true');
-                                  await sendShellCmd('set CreateSession true');
                                   await sendShellCmd('run');
+                                  // Kill the original shell session — the module creates a new meterpreter
+                                  // session (CreateSession default true), leaving the old shell alive and
+                                  // resulting in two meterpreter entries.  Killing s.id removes the duplicate.
+                                  await sendShellCmd(`sessions -k ${s.id}`);
                                   upgradingRef.current.delete(s.id);
+                                  loadMsfSessions();
                                 }}
                                 title="Upgrade shell to Meterpreter">
                                 ↑ Upgrade to Meterpreter
