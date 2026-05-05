@@ -4234,7 +4234,6 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
   const [msfSessions, setMsfSessions]               = useState<MsfSession[]>([]);
   const [msfSessionsLoading, setMsfSessionsLoading] = useState(false);
   const msfLoadingRef = useRef(false); // synchronous guard against double-fire
-  const [upgradedSessions, setUpgradedSessions]     = useState<Set<string>>(new Set());
   const upgradingRef = useRef<Set<string>>(new Set());
   // Tracks which MSF session is currently entered interactively (sessions -i <id>).
   // isMeterpreter distinguishes confirmation behaviour: shell sessions prompt "Background session N? [y/N]".
@@ -5256,11 +5255,10 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
                             </button>
                             {!isMeterpreter && (
                               <button className="btn-upgrade-session"
-                                disabled={upgradedSessions.has(s.id)}
+                                disabled={upgradingRef.current.has(s.id)}
                                 onClick={async () => {
                                   if (upgradingRef.current.has(s.id)) return;
                                   upgradingRef.current.add(s.id);
-                                  setUpgradedSessions(prev => new Set(prev).add(s.id));
                                   // Must be at msf> prompt — background any active interactive session first
                                   await ensureMsfPrompt();
                                   await sendShellCmd('use post/multi/manage/shell_to_meterpreter');
@@ -5270,6 +5268,7 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
                                   await sendShellCmd('set DB_ALL_USERS true');
                                   await sendShellCmd('set CreateSession true');
                                   await sendShellCmd('run');
+                                  upgradingRef.current.delete(s.id);
                                 }}
                                 title="Upgrade shell to Meterpreter">
                                 ↑ Upgrade to Meterpreter
