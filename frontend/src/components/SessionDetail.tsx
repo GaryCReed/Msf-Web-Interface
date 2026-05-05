@@ -4797,9 +4797,21 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
     ? `${osInfo.family || osInfo.name}${osInfo.os_gen ? ` ${osInfo.os_gen}` : ''}${osInfo.accuracy < 90 ? ' ~' : ''}`
     : null;
 
+  // Filter msfSessions to only those belonging to this target host.
+  // Connection string format: "attacker:port -> victim:port (victim_ip)"
+  // We match the destination part (after '->') against the session's target_host IP.
+  const targetIP = session?.target_host || '';
+  const hostSessions = targetIP
+    ? msfSessions.filter(s => {
+        const arrow = s.connection.indexOf('->');
+        if (arrow !== -1 && s.connection.slice(arrow + 2).includes(targetIP)) return true;
+        return s.info.includes(targetIP);
+      })
+    : msfSessions;
+
   // Determine active session type.
   // Priority: manual override → the session the user explicitly interacted with → last known MSF session → 'any'.
-  const activeMsfSession = msfSessions.length > 0 ? msfSessions[msfSessions.length - 1] : null;
+  const activeMsfSession = hostSessions.length > 0 ? hostSessions[hostSessions.length - 1] : null;
   const detectedSessionType: 'meterpreter' | 'shell' | 'any' = interactedSession
     ? (interactedSession.isMeterpreter ? 'meterpreter' : 'shell')
     : activeMsfSession
@@ -5217,19 +5229,19 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
                 </div>
               </div>
               <div className="msf-sessions-body">
-                {msfSessionsLoading && msfSessions.length === 0 && (
+                {msfSessionsLoading && hostSessions.length === 0 && (
                   <p className="output-hint">Loading sessions…</p>
                 )}
-                {!msfSessionsLoading && msfSessions.length === 0 && (
+                {!msfSessionsLoading && hostSessions.length === 0 && (
                   <p className="output-hint">
-                    No active MSF sessions.{'\n'}
+                    No active MSF sessions for {targetIP || 'this host'}.{'\n'}
                     Run a module from Enumeration or CVE Analysis to create a session.{'\n'}
                     The Console tab must be open first.
                   </p>
                 )}
-                {msfSessions.length > 0 && (
+                {hostSessions.length > 0 && (
                   <div className="msf-session-list">
-                    {msfSessions.map(s => {
+                    {hostSessions.map(s => {
                       const isMeterpreter = s.type.startsWith('meterpreter');
                       const arch = s.type.replace(/^(meterpreter|shell)\s*/, '');
                       return (
