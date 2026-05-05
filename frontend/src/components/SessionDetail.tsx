@@ -968,9 +968,9 @@ function ActiveDirectoryPanel({ sessionId, targetHost }: { sessionId: number; ta
         )}
       </div>
 
-      {/* ── NXC Sweep ── */}
+      {/* ── WinShare Sweep ── */}
       <div className="ad-kerbrute-section">
-        <div className="ad-kerbrute-header">NXC Sweep</div>
+        <div className="ad-kerbrute-header">WinShare Sweep</div>
 
         {/* Protocol toggles */}
         <div className="ad-kerbrute-row" style={{flexWrap:'wrap', gap:6}}>
@@ -1014,7 +1014,7 @@ function ActiveDirectoryPanel({ sessionId, targetHost }: { sessionId: number; ta
           {nxcRunning ? (
             <button className="btn-run-scan" onClick={stopNxcSweep}>■ Stop</button>
           ) : (
-            <button className="btn-run-scan" onClick={startNxcSweep}>▶ Run NXC Sweep</button>
+            <button className="btn-run-scan" onClick={startNxcSweep}>▶ Run WinShare Sweep</button>
           )}
           {nxcRunning && <span className="cve-metrics-loading"><span className="btn-spinner"/> Sweeping…</span>}
           {nxcDone && !nxcRunning && <span className="ad-loot-saved">✓ Done</span>}
