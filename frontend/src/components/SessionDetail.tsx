@@ -481,13 +481,19 @@ function parseMsfSessions(text: string): MsfSession[] {
   let pastHeader = false;
   for (const line of lines) {
     if (!pastHeader) {
-      if (/^[\s-]+$/.test(line) && line.includes('--')) pastHeader = true;
+      // The dashes separator row: "  --  ----  ----  ..."
+      if (/^[\s*-]+$/.test(line) && line.includes('--')) pastHeader = true;
       continue;
     }
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('msf')) break;
-    // Columns: Id  Name  Type  Information  Connection
-    const m = trimmed.match(/^(\d+)\s+\S*\s+((?:meterpreter|shell)\s+\S+)\s{2,}(.*?)\s{2,}(\S+\s*->\s*\S+(?:\s+\(\S+\))?)?$/);
+    if (!trimmed) continue;           // blank lines between rows — skip, don't stop
+    if (trimmed.startsWith('msf')) break; // back at msf> prompt — stop
+    // Columns: [*] Id  Name  Type  Information  Connection
+    // Metasploit prefixes the currently-interacted session with '*'.
+    // Name is usually empty; whitespace between Id and Type varies.
+    const m = trimmed.match(
+      /^[*]?\s*(\d+)\s+\S*\s+((?:meterpreter|shell)\s+\S+)\s{2,}(.*?)\s{2,}(\S+\s*->\s*\S+(?:\s+\(\S+\))?)?$/
+    );
     if (m) {
       sessions.push({ id: m[1], type: m[2].trim(), info: m[3].trim(), connection: m[4]?.trim() || '' });
     }
@@ -4448,9 +4454,12 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
       handleCVEAnalysis();
   }, [activeAction, cveResultsLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Always refresh MSF sessions when opening the Shells tab
+  // Always refresh MSF sessions when opening the Shells tab (full load, backgrounds session first).
+  // Also do a quiet refresh on Post Exploitation tab so auto-detect has current data without
+  // disturbing an active meterpreter/shell session.
   useEffect(() => {
     if (activeAction === 6) loadMsfSessions();
+    if (activeAction === 7) loadMsfSessionsQuiet();
   }, [activeAction]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load loot when opening the Loot tab
@@ -4634,6 +4643,20 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
     if (!isMeterpreter) {
       // Confirm the shell's "Background session N? [y/N]" prompt
       await sendShellCmd('y');
+    }
+  };
+
+  // loadMsfSessions: backgrounds any active session first (used by Shells tab refresh).
+  // loadMsfSessionsQuiet: does NOT background — safe to call while in a session (used by Post Ex tab).
+  const loadMsfSessionsQuiet = async () => {
+    if (msfLoadingRef.current) return;
+    msfLoadingRef.current = true;
+    try {
+      const res = await axios.get(`/api/sessions/${sessionId}/msf-sessions`);
+      const parsed = parseMsfSessions(res.data.output || '');
+      setMsfSessions(prev => parsed.length > 0 ? parsed : prev);
+    } catch { /* ignore */ } finally {
+      msfLoadingRef.current = false;
     }
   };
 
