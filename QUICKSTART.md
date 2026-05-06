@@ -16,6 +16,8 @@
 | nmap | any | `which nmap` |
 | hashcat | any | `which hashcat` — for WiFi cracking |
 | hydra | any | `which hydra` — for bruteforce |
+| nxc | any | `which nxc` — for WinShare Sweep (NetExec) |
+| sqlmap | any | `which sqlmap` — for SQL injection |
 | feroxbuster | any | `which feroxbuster` — for directory busting |
 | wpscan | any | `which wpscan` — for WordPress scanning |
 | aircrack-ng suite | any | `which airodump-ng` — for WiFi capture |
@@ -73,11 +75,12 @@ Open a session to reach the main workspace. The MSF Console is always visible on
 | **Vulnerability Scan** | Runs `nmap -sV -O --script=vuln,vulners` against the target. Runs in the background — navigate away freely. Results persist to the database. |
 | **Enumeration** | Parses scan XML into a structured service list and suggests Metasploit modules per service. Results persist. |
 | **CVE Analysis** | Fetches CVEs from NVD, enriches with CVSS scores and GitHub PoC repositories. Results are saved to the database and feed into the project report. |
-| **Shells** | Lists active MSF sessions. Interact, upgrade to Meterpreter, background, or kill. Auto-refreshes when a new session opens. |
-| **Post Exploitation** | Quick-command buttons and recommended modules filtered by session type and OS. Output is automatically parsed for credentials, hashes, user accounts, system info, and other artefacts (loot). `shell <cmd>` buttons use a 3-step sequence to correctly capture output through msfconsole's non-TTY pipe. |
-| **Active Directory** | Grouped AD attack commands: domain enum, credential attacks (Kerberoast, AS-REP, DCSync), lateral movement, privilege escalation, BloodHound, LDAP enum, SMB/RPC enum, ADCS certificate attacks. |
+| **Shells** | Lists active MSF sessions **for the current target host only** (sessions on other hosts are hidden). Interact, upgrade to Meterpreter, background, or kill. Killed sessions are removed immediately. Upgrade automatically removes the original shell and any spurious sessions from multi-homed targets. |
+| **Post Exploitation** | Quick-command buttons and recommended modules filtered by session type and OS. Session type is auto-detected when the tab opens. `shell <cmd>` buttons use a 3-step sequence to correctly capture output through msfconsole's non-TTY pipe. |
+| **Active Directory** | Grouped AD attack commands: domain enum, credential attacks (Kerberoast, AS-REP, DCSync), lateral movement, privilege escalation, BloodHound, LDAP enum, SMB/RPC enum, ADCS certificate attacks. Includes WinShare Sweep for multi-protocol credential testing. |
 | **Password Attacks** | WiFi handshake capture and hashcat cracking with 50+ ISP mask presets; Hydra bruteforce against network services with HTTP form presets; WPScan WordPress scanner. |
 | **Directory Busting** | Feroxbuster recursive content discovery. Results persist per host until a fresh scan is run. |
+| **SQLMap** | SQL injection scanner with full option coverage: all techniques, enumeration, OS shell access, tamper scripts, and detection tuning. Findings saved to loot. |
 | **Report** | Structured per-session engagement report. Print or save as PDF. |
 
 ### MSF Console tips
@@ -130,6 +133,17 @@ Vulnerable APs (those advertising both SAE and PSK) are highlighted in the WiFi 
    - Enter the target's IP or leave blank to use the session host. If the target is on a non-standard port (e.g. `:8181`), enter it in the **Port override** field — or include it in the target IP field as `192.168.1.1:8181` and it will be extracted automatically.
 3. Choose credential mode: wordlists, combo file, or a single username/password pair.
 4. Click **Start**.
+
+### WinShare Sweep (Active Directory panel)
+
+Tests credentials across up to nine protocols in one run. Found in the **Active Directory** tab.
+
+1. Tick the protocols to test (SMB, LDAP, LDAPS, WinRM, RDP, SSH, MSSQL, FTP, WMI — all on by default).
+2. Enter the target IP (defaults to the session host), domain, and either a password or an NT hash for pass-the-hash.
+3. Toggle **--local-auth** if testing local accounts rather than domain accounts.
+4. Click **▶ Run WinShare Sweep**.
+
+Each protocol port is checked before running — closed ports are skipped. All `[+]` successes appear in the live output and are saved to the **NXC / CME Findings** section of the Loot tab. `(Pwn3d!)` is highlighted in red.
 
 ---
 
@@ -214,3 +228,15 @@ If hashcat outputs the password in hex-encoded form, the backend automatically d
 
 **Database file in the wrong location**
 The binary creates `bagaholdin.db` in the same directory as itself. If running with `go run .`, the database is created in the current working directory. Set `DATABASE_URL=sqlite3:///absolute/path/to/bagaholdin.db` in `.env` to fix the location explicitly.
+
+**Upgrade to Meterpreter creates two sessions or zero sessions**
+Two sessions: the target is multi-homed and meterpreter called back from multiple NICs. The upgrade button automatically kills any new sessions that have an empty Information field (spurious NICs) and keeps the real session. Zero sessions: the upgrade failed (wrong payload arch, firewall blocking port 4433, etc.) — the original shell is left alive so you can retry or use a different approach.
+
+**Shells panel shows sessions from other hosts**
+Each session page filters the MSF session list to only sessions whose connection destination or Info field matches the session's target host. If a session is missing, check that the target IP in Bagaholdin matches the IP in the msfconsole connection string.
+
+**WinShare Sweep: `nxc` not found**
+Install NetExec: `sudo apt install netexec` or `pipx install netexec`. The binary must be on PATH as `nxc`.
+
+**Killed session still shows in the Shells panel**
+The UI removes the session immediately on click (optimistic update). If it reappears after the reload, msfconsole did not fully process the kill — check the console output for errors and try `sessions -k N` manually.

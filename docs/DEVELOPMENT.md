@@ -151,11 +151,14 @@ CVE analysis (`handleCVEAnalysis`) fetches from NVD API and greps the local MSF 
 | `ad_discovery` | nmap ldap-rootdse / smb-os-discovery output |
 | `kerbrute_users` | kerbrute VALID USERNAME lines |
 | `smb_enum` | enum4linux / enum4linux-ng output |
-| `crackmapexec_finding` | crackmapexec [+] success lines |
+| `crackmapexec_finding` | crackmapexec [+] success lines (raw text blob) |
+| `nxc_finding` | WinShare Sweep [+] lines (structured: protocol, host, port, machine, user, status) |
 
 `AppendLoot(sessionID, target, cmd, output)` is the main entry point — it calls `extractLoot()` which dispatches to per-type parsers based on the `cmd` string.
 
 `SetWifiHandshakePassword(sessionID, target, ssid, bssid, password)` — finds `wifi_handshake` loot entries matching the BSSID and stamps them with the cracked password. Called by hashcat after a successful crack.
+
+`AppendNxcFinding(sessionID, target, finding)` — saves a single structured WinShare Sweep result as `nxc_finding`. Each field (protocol, host, port, machine, user, status, raw) is stored individually for table rendering in the loot tab.
 
 ### Async Job Pattern
 
@@ -178,6 +181,10 @@ Job state is stored in package-level `sync.Map` (not the database). Output accum
 3. Send `exit` — closes bash, returns to meterpreter prompt
 
 **Bash sub-shell tracking:** `inBashSubshellRef` tracks when the post-ex panel has entered an interactive bash sub-shell (via standalone `shell`). Before sending any native meterpreter command, if this flag is set, `exit` is sent first to return to the meterpreter prompt.
+
+**Session type auto-detect:** `parseMsfSessions` is called both on the Shells tab (full load, backgrounds active session first) and silently when the Post Exploitation tab opens (`loadMsfSessionsQuiet`, no `ensureMsfPrompt`). The parser handles blank lines between the header and session rows (skipped, not treated as end-of-list) and the `*` prefix Metasploit adds to the currently-interacted session. `hostSessions` filters the global session list to only those whose connection string destination or info field matches `session.target_host`, so sessions on other hosts are not shown.
+
+**Shell upgrade:** `post/multi/manage/shell_to_meterpreter` is run without `jobs -K` (which would kill needed infrastructure). After `run` completes, a 2-second pause allows callbacks to register. The session list is then reloaded: if at least one new meterpreter session was created, the original shell is killed and any spurious sessions with an empty `Information` field are also killed (these are callbacks from alternate NICs on a multi-homed target). If the upgrade failed, the original shell is left intact.
 
 ### Bruteforce (Hydra)
 
@@ -208,6 +215,14 @@ The displayed command uses `shellQuoteArgs` — args containing `&`, `^`, spaces
 ### Feroxbuster
 
 `backend/feroxbuster.go` — results are saved to both the `ferox_results` database table and an in-memory job buffer. On a new scan, `db.DeleteFeroxResults(sessionID)` clears the previous results. The output file is read as the authoritative source after the process exits (deduplication by URL).
+
+### WinShare Sweep (nxcsweep.go)
+
+`backend/nxcsweep.go` — multi-protocol credential sweep via NetExec (`nxc`). Nine protocols in a priority table (SMB/LDAP/LDAPS/WinRM/RDP/SSH/MSSQL/FTP/WMI), each with port, extra args, and a per-protocol flag strip list (`--local-auth` stripped from FTP). Port availability is checked with `net.DialTimeout` (2-second timeout) before running each protocol; skipped protocols log "closed/filtered". Supports password auth (`-p`) and pass-the-hash (`-H`). ANSI escape codes are stripped from output before storage. `[+]` lines are parsed by `reNxcFound` regex into `NxcFinding` structs (protocol, host, port, machine name, user+credential, status). Each finding is saved via `AppendNxcFinding` as a structured `nxc_finding` loot item. The loot tab renders these in a dedicated "NXC / CME Findings" table with `(Pwn3d!)` highlighted in red.
+
+### SQLMap
+
+`backend/sqlmap.go` — `buildSqlmapArgs` constructs the full argv slice from `SqlmapRequest`. All options from the man page are supported: injection techniques, `--time-sec`, `--second-url`, detection level/risk/strings/code, `--no-cast`, full enumeration suite (banner, current-user, current-db, is-dba, hostname, users, passwords, privileges, roles, databases, tables, columns, count, schema, dump/dump-all), SQL query/shell (`--sql-query`, `--sql-shell`), OS access (`--os-shell`, `--os-pwn`), request options (user-agent, proxy, Tor, SSL, ignore-code, delay, timeout, retries, threads), crawl, and custom args. Custom args are parsed by `shellSplitArgs()` (respects single/double quotes) rather than `strings.Fields`. The output parser detects: DBMS identification, injection parameter blocks (`Parameter: X (GET/POST)` + `Type: ...` lines), database list entries (`[*] name`), table/database label lines in dump output, dump rows, and OS access lines. `[*]` status lines (startup, target count) are excluded from database findings.
 
 ### File Paths
 
@@ -264,13 +279,20 @@ All significant result types are persisted to the database and survive restarts 
 
 All DB tables use upsert (`ON CONFLICT DO UPDATE`) so re-running a scan always reflects the latest state.
 
+### Routing / Login
+
+`App.tsx` uses React Router. The `/login` route renders `LoginPage` unconditionally (regardless of auth state) so navigating to `/login` always shows the login form. After a successful login, the `isAuthenticated` state becomes `true` and the `/login` route renders `<Navigate to="/" replace />`, redirecting to the projects page. The binary opens the browser to `/login` (not `/`) once the server is accepting TCP connections.
+
 ### Post-Exploitation Panel
 
-The post-ex panel has two layers of session state:
+The post-ex panel has three layers of session state:
 - `interactedSessionRef` / `interactedSession` — tracks which MSF session is currently entered (via `sessions -i <id>`)
 - `inBashSubshellRef` — tracks whether a standalone `shell` command has been sent (dropping into an interactive bash sub-shell)
+- `hostSessions` — derived from `msfSessions` filtered to the current `session.target_host` IP; used for the Shells panel display and `activeMsfSession` selection
 
 Commands of the form `shell <cmd>` (with arguments) use the 3-step channel-interact sequence rather than sending `shell <cmd>` directly, because non-TTY msfconsole does not stream channel stdout back to the HTTP response for combined `shell cmd` calls.
+
+The Shells panel kill button optimistically removes the session from `msfSessions` state immediately, clears `interactedSessionRef` if the killed session was the active one, then awaits `sessions -k N` followed by an 800ms settle and a full `loadMsfSessions` reload.
 
 ### CSS Variables
 
