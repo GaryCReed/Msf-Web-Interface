@@ -4254,12 +4254,7 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
   const [postExSearch, setPostExSearch] = useState('');           // input for meterpreter file search
   const [sessionTypeOverride, setSessionTypeOverride] = useState<'auto'|'meterpreter'|'shell'>('auto');
 
-  // Askpass helper — stores a sudo password that is injected via `sudo -S` at run time.
-  // askpassStored is the live password used by handlePostExRun.
-  // askpassInput is the draft field the user types into before clicking Set.
-  const [askpassInput, setAskpassInput]   = useState('');
-  const [askpassStored, setAskpassStored] = useState('');
-  const [askpassHidden, setAskpassHidden] = useState(true);
+  const askpassStored: string = '';
 
   // Loot panel
   const [lootItems, setLootItems]     = useState<any[]>([]);
@@ -4281,9 +4276,6 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
     axios.get('/api/network')
       .then(res => setLocalIfaces(res.data.interfaces || []))
       .catch(() => {});
-    // Auto-populate sudo password from the value stored at login
-    const storedSudo = sessionStorage.getItem('msf_sudo');
-    if (storedSudo) setAskpassStored(storedSudo);
   }, [sessionId]);
 
   // On mount: check if a scan is already running server-side and resume polling if so.
@@ -5369,39 +5361,6 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
                     </select>
                   </div>
 
-                  {/* ── Askpass helper — stores sudo password, injected via sudo -S at run time ── */}
-                  <div className="post-ex-context-row post-ex-shell-input-row">
-                    <span className="post-ex-context-label">Sudo password:</span>
-                    {askpassStored ? (
-                      <>
-                        <span className="askpass-set-indicator">password set</span>
-                        <button className="btn-askpass-clear" onClick={() => { setAskpassStored(''); setAskpassInput(''); }}>
-                          Clear
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <input
-                          type={askpassHidden ? 'password' : 'text'}
-                          className="shell-input-field"
-                          placeholder="Enter sudo password — injected automatically via sudo -S"
-                          value={askpassInput}
-                          onChange={e => setAskpassInput(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter' && askpassInput) { setAskpassStored(askpassInput); setAskpassInput(''); } }}
-                        />
-                        <button className="btn-shell-input-toggle"
-                          title={askpassHidden ? 'Show' : 'Hide'}
-                          onClick={() => setAskpassHidden(h => !h)}>
-                          {askpassHidden ? '👁' : '🙈'}
-                        </button>
-                        <button className="btn-shell-input-send"
-                          disabled={!askpassInput}
-                          onClick={() => { setAskpassStored(askpassInput); setAskpassInput(''); }}>
-                          Set
-                        </button>
-                      </>
-                    )}
-                  </div>
                 </div>
 
                 {/* ── Quick command buttons ── */}
