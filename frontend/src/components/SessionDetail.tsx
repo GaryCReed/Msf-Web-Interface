@@ -5304,9 +5304,19 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
                             )}
                             <button className="btn-kill-session"
                               onClick={async () => {
+                                // Optimistically remove from UI immediately
+                                setMsfSessions(prev => prev.filter(ms => ms.id !== s.id));
+                                // Clear interacted state if this was the active session
+                                if (interactedSessionRef.current?.id === s.id) {
+                                  interactedSessionRef.current = null;
+                                  setInteractedSession(null);
+                                  inBashSubshellRef.current = false;
+                                }
                                 await ensureMsfPrompt();
                                 await sendShellCmd(`sessions -k ${s.id}`);
-                                loadMsfSessions();
+                                // Brief pause so MSF finishes processing the kill before re-listing
+                                await new Promise(r => setTimeout(r, 800));
+                                await loadMsfSessions();
                               }}
                               title="Kill this session">
                               ✕ Kill
