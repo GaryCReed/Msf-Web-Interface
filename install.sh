@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# MSF Web Interface — dependency installer
+# BagaHoldin — dependency installer
 # Run as root or with sudo on Kali Linux.
 set -euo pipefail
 
@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ $EUID -ne 0 ]] && SUDO="sudo" || SUDO=""
 grep -qi kali /etc/os-release 2>/dev/null || warn "Not running on Kali Linux — proceeding anyway"
 
-echo -e "${BLUE}MSF Web Interface — installing dependencies${NC}"
+echo -e "${BLUE}BagaHoldin — installing dependencies${NC}"
 echo "────────────────────────────────────────────"
 
 # ── 1. apt update ─────────────────────────────────────────────────────────────

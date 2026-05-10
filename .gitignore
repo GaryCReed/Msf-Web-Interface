@@ -1,35 +1,33 @@
-# Environment / secrets
-backend/.env
-.env
+# Dependencies
+frontend/node_modules/
 
-# Go build artifacts
-backend/bagaholdin
-backend/msf-server
-backend/msf-web
-backend/msf-web-interface
-backend/*.exe
-backend/*.db
+# Build output
+frontend/build/
+
+# Backend embedded UI (copied from frontend/build)
 backend/ui/
 
-# Node / React
-frontend/node_modules/
-frontend/build/
-frontend/.env.local
-frontend/.env.development.local
-frontend/.env.test.local
-frontend/.env.production.local
+# Compiled binary
+backend/bagaholdin
 
-# Scan artifacts
-/tmp/msf-scans/
+# Database files
+*.db
+*.sqlite
 
-# IDE
+# Environment files
+.env
+*.env.local
+
+# Compiled binaries
+backend/msf-web-interface
+
+# Runtime data
+backend/handshakes/
+
+# IDE / editor
 .vscode/
-.idea/
+.claude/
 
 # OS
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
-npm-debug.log*

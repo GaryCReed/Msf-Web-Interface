@@ -125,7 +125,7 @@ export default function ProjectsPage({ onLogout }: ProjectsPageProps) {
     <div className="projects-page">
       <header className="projects-header">
         <div className="projects-header-left">
-          <h1>MSF Web Interface</h1>
+          <h1>BagaHoldin</h1>
           {localInterfaces.length > 0 && (
             <div className="projects-network-info">
               {localInterfaces.map(iface => (
