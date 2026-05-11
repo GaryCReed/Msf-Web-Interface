@@ -4263,6 +4263,7 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
   // Notes panel
   const [notesText, setNotesText]     = useState('');
   const [notesSaving, setNotesSaving] = useState(false);
+
   const notesSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Enumeration — which service's module list is expanded (one at a time)
@@ -4470,6 +4471,7 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
       .then(res => setNotesText(res.data.notes || ''))
       .catch(() => {});
   }, [activeAction, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
 
   // Apply completed scan results (shared by poll and resume-on-mount paths).
   const applyVulnResult = (data: any) => {

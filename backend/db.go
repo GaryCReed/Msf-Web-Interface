@@ -1364,3 +1364,4 @@ func (db *DB) DeleteFeroxResults(sessionID int) error {
 	_, err := db.conn.Exec(db.rebind(`DELETE FROM ferox_results WHERE session_id = ?`), sessionID)
 	return err
 }
+

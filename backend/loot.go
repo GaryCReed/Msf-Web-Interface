@@ -777,74 +777,92 @@ func AppendADDiscovery(sessionID int, target, output string) error {
 }
 
 // AppendSMBEnum parses enum4linux / enum4linux-ng output and saves users,
-// groups, shares, and password policy as a structured loot item.
+// groups, shares, password policy, and OS/domain info as a structured loot item.
+// Handles both the old enum4linux bracket format (user:[x]) and the
+// enum4linux-ng pipe format (| username: x).
 func AppendSMBEnum(sessionID int, target, output string) error {
-	extract := func(section, pattern string) []string {
-		var results []string
-		inSection := false
-		re := regexp.MustCompile(pattern)
-		for _, line := range strings.Split(output, "\n") {
-			if strings.Contains(line, section) { inSection = true; continue }
-			if inSection {
-				if strings.HasPrefix(line, " ===") || strings.HasPrefix(line, "====") { break }
-				m := re.FindStringSubmatch(line)
-				if len(m) > 1 { results = append(results, strings.TrimSpace(m[1])) }
-			}
+	if strings.TrimSpace(output) == "" {
+		return nil
+	}
+
+	seen := func(m map[string]bool, v string) bool {
+		if m[v] { return true }
+		m[v] = true
+		return false
+	}
+
+	userSeen, groupSeen, shareSeen := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	var users, groups, shares []string
+
+	// Regexes covering both tool formats.
+	// enum4linux-ng:  | username: Administrator
+	// enum4linux:     user:[Administrator] rid:[0x1f4]
+	userNGRE  := regexp.MustCompile(`^\|\s+username:\s+(.+)`)
+	userOldRE := regexp.MustCompile(`user:\[([^\]]+)\]`)
+	groupNGRE  := regexp.MustCompile(`^\|\s+groupname:\s+(.+)`)
+	groupOldRE := regexp.MustCompile(`group:\[([^\]]+)\]`)
+	shareNGRE  := regexp.MustCompile(`^\|\s+sharename:\s+(.+)`)
+
+	for _, line := range strings.Split(output, "\n") {
+		if m := userNGRE.FindStringSubmatch(line); len(m) > 1 {
+			if u := strings.TrimSpace(m[1]); u != "" && !seen(userSeen, u) { users = append(users, u) }
+		} else if m := userOldRE.FindStringSubmatch(line); len(m) > 1 {
+			if u := m[1]; !seen(userSeen, u) { users = append(users, u) }
 		}
-		return results
+		if m := groupNGRE.FindStringSubmatch(line); len(m) > 1 {
+			if g := strings.TrimSpace(m[1]); g != "" && !seen(groupSeen, g) { groups = append(groups, g) }
+		} else if m := groupOldRE.FindStringSubmatch(line); len(m) > 1 {
+			if g := m[1]; !seen(groupSeen, g) { groups = append(groups, g) }
+		}
+		if m := shareNGRE.FindStringSubmatch(line); len(m) > 1 {
+			if s := strings.TrimSpace(m[1]); s != "" && !seen(shareSeen, s) { shares = append(shares, s) }
+		}
 	}
 
-	// Users — match lines like: user:[username] rid:[nnn]
-	userRE := regexp.MustCompile(`user:\[([^\]]+)\]`)
-	var users []string
-	for _, line := range strings.Split(output, "\n") {
-		m := userRE.FindStringSubmatch(line)
-		if len(m) > 1 { users = append(users, m[1]) }
-	}
-
-	// Groups — match lines like: group:[name] rid:[nnn]
-	groupRE := regexp.MustCompile(`group:\[([^\]]+)\]`)
-	var groups []string
-	for _, line := range strings.Split(output, "\n") {
-		m := groupRE.FindStringSubmatch(line)
-		if len(m) > 1 { groups = append(groups, m[1]) }
-	}
-
-	// Shares — match lines like: Sharename     Type     Comment
-	var shares []string
+	// Old enum4linux share table (Sharename  Type  Comment header).
 	inShares := false
 	for _, line := range strings.Split(output, "\n") {
 		if strings.Contains(line, "Sharename") && strings.Contains(line, "Type") { inShares = true; continue }
 		if inShares {
 			if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "---") { if len(shares) > 0 { break }; continue }
-			parts := strings.Fields(line)
-			if len(parts) > 0 && !strings.HasPrefix(parts[0], "-") { shares = append(shares, parts[0]) }
+			if parts := strings.Fields(line); len(parts) > 0 && !strings.HasPrefix(parts[0], "-") {
+				if !seen(shareSeen, parts[0]) { shares = append(shares, parts[0]) }
+			}
 		}
 	}
 
-	// Password min length
-	minPwRE := regexp.MustCompile(`(?i)minimum password length:\s*(\d+)`)
+	// Password policy — both formats use similar keywords.
+	minPwRE := regexp.MustCompile(`(?i)minimum.password.length[:\s]+(\d+)`)
 	minPw := ""
 	if m := minPwRE.FindStringSubmatch(output); len(m) > 1 { minPw = m[1] }
 
-	_ = extract // silence unused warning
-
-	if len(users) == 0 && len(groups) == 0 && len(shares) == 0 {
-		return nil
+	// OS / domain info from enum4linux-ng.
+	osRE     := regexp.MustCompile(`(?i)^\s+OS:\s+(.+)`)
+	domainRE := regexp.MustCompile(`(?i)(?:Domain name|NetBIOS computer name|Domain)[:\s]+([A-Za-z0-9._-]+)`)
+	osInfo, domain := "", ""
+	for _, line := range strings.Split(output, "\n") {
+		if osInfo == "" {
+			if m := osRE.FindStringSubmatch(line); len(m) > 1 { osInfo = strings.TrimSpace(m[1]) }
+		}
+		if domain == "" {
+			if m := domainRE.FindStringSubmatch(line); len(m) > 1 {
+				if v := strings.TrimSpace(m[1]); v != "" && v != "0" { domain = v }
+			}
+		}
 	}
 
 	var fields []LootField
-	if len(users) > 0 {
-		fields = append(fields, LootField{Name: "Users", Value: strings.Join(users, ", ")})
-	}
-	if len(groups) > 0 {
-		fields = append(fields, LootField{Name: "Groups", Value: strings.Join(groups, ", ")})
-	}
-	if len(shares) > 0 {
-		fields = append(fields, LootField{Name: "Shares", Value: strings.Join(shares, ", ")})
-	}
-	if minPw != "" {
-		fields = append(fields, LootField{Name: "Min Password Length", Value: minPw})
+	if osInfo != ""  { fields = append(fields, LootField{Name: "OS", Value: osInfo}) }
+	if domain != ""  { fields = append(fields, LootField{Name: "Domain", Value: domain}) }
+	if len(users) > 0  { fields = append(fields, LootField{Name: "Users", Value: strings.Join(users, ", ")}) }
+	if len(groups) > 0 { fields = append(fields, LootField{Name: "Groups", Value: strings.Join(groups, ", ")}) }
+	if len(shares) > 0 { fields = append(fields, LootField{Name: "Shares", Value: strings.Join(shares, ", ")}) }
+	if minPw != ""      { fields = append(fields, LootField{Name: "Min Password Length", Value: minPw}) }
+
+	// Always persist the raw output so nothing is silently dropped when
+	// structured parsing finds nothing (e.g. unauthenticated scan with no results).
+	if len(fields) == 0 {
+		fields = append(fields, LootField{Name: "Raw Output", Value: strings.TrimSpace(output)})
 	}
 
 	lootMu.Lock()

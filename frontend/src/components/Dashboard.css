@@ -412,4 +412,3 @@
 .host-status-dot.online { background: var(--green); box-shadow: var(--glow-green); }
 
 /* Remaining host-item styles inherited from base via cascade */
-
