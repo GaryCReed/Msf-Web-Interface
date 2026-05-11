@@ -60,7 +60,7 @@ func main() {
 	// so the DB file always lands next to the binary regardless of CWD.
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "sqlite3://msf_web.db"
+		dbURL = "sqlite3://bagaholdin.db"
 	}
 	if strings.HasPrefix(dbURL, "sqlite3://") {
 		rel := strings.TrimPrefix(dbURL, "sqlite3://")
@@ -74,7 +74,7 @@ func main() {
 	// Initialize database.
 	db, err := NewDB(dbURL)
 	if err != nil {
-		fallback := "sqlite3://" + filepath.Join(base, "msf_web.db")
+		fallback := "sqlite3://" + filepath.Join(base, "bagaholdin.db")
 		log.Printf("Warning: could not open %s: %v — falling back to %s", dbURL, err, fallback)
 		db, err = NewDB(fallback)
 		if err != nil {
