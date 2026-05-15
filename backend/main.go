@@ -99,6 +99,14 @@ func main() {
 	// into the in-memory registry automatically.
 	initHandshakeDir(filepath.Join(base, "handshakes"))
 
+	// Start FTP server for remote handshake uploads.
+	// Default port 2121; override with FTP_PORT env var (set to 21 for standard FTP).
+	ftpPort := 2121
+	if p, err := strconv.Atoi(os.Getenv("FTP_PORT")); err == nil && p > 0 {
+		ftpPort = p
+	}
+	go startFTPServer(ftpPort)
+
 	// Initialize router
 	router := chi.NewRouter()
 	router.Use(middleware.Logger)
