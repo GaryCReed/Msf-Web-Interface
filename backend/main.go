@@ -112,6 +112,12 @@ func main() {
 	router.Use(middleware.Logger)
 	router.Use(middleware.Recoverer)
 
+	// Public phishing tracking routes (no auth — targets hit these links).
+	router.Get("/t/open/{rid}",    handlePhishOpen(db))
+	router.Get("/t/click/{rid}",   handlePhishClick(db))
+	router.Post("/t/submit/{rid}", handlePhishSubmit(db))
+	router.Get("/t/page/{rid}",    handlePhishPage(db))
+
 	// Rate-limited auth routes (10 requests/minute per IP)
 	authLimiter := httprate.LimitByIP(10, time.Minute)
 	router.With(authLimiter).Post("/api/auth/login", handleLogin(db))
@@ -216,6 +222,35 @@ func main() {
 		r.Post("/sessions/{id}/msfvenom/winusername", handleMsfvenomGetWinUsername(db))
 		// Tools
 		r.Post("/wifi/reset", handleResetWifiAdapters())
+
+		// Phishing campaigns
+		r.Get("/phishing/smtp",                        handleListSMTP(db))
+		r.Post("/phishing/smtp",                       handleCreateSMTP(db))
+		r.Put("/phishing/smtp/{id}",                   handleUpdateSMTP(db))
+		r.Delete("/phishing/smtp/{id}",                handleDeleteSMTP(db))
+		r.Post("/phishing/smtp/{id}/test",             handleTestSMTP(db))
+		r.Get("/phishing/templates",                   handleListTemplates(db))
+		r.Post("/phishing/templates",                  handleCreateTemplate(db))
+		r.Put("/phishing/templates/{id}",              handleUpdateTemplate(db))
+		r.Delete("/phishing/templates/{id}",           handleDeleteTemplate(db))
+		r.Get("/phishing/pages",                       handleListPages(db))
+		r.Post("/phishing/pages",                      handleCreatePage(db))
+		r.Put("/phishing/pages/{id}",                  handleUpdatePage(db))
+		r.Delete("/phishing/pages/{id}",               handleDeletePage(db))
+		r.Get("/phishing/pages/{id}/preview",          handlePreviewPage(db))
+		r.Get("/phishing/groups",                      handleListGroups(db))
+		r.Post("/phishing/groups",                     handleCreateGroup(db))
+		r.Get("/phishing/groups/{id}",                 handleGetGroup(db))
+		r.Put("/phishing/groups/{id}",                 handleUpdateGroup(db))
+		r.Delete("/phishing/groups/{id}",              handleDeleteGroup(db))
+		r.Post("/phishing/groups/{id}/targets",        handleAddTarget(db))
+		r.Delete("/phishing/groups/{id}/targets/{tid}",handleDeleteTarget(db))
+		r.Post("/phishing/groups/{id}/import",         handleImportTargets(db))
+		r.Get("/phishing/campaigns",                   handleListCampaigns(db))
+		r.Post("/phishing/campaigns",                  handleCreateCampaign(db))
+		r.Delete("/phishing/campaigns/{id}",           handleDeleteCampaign(db))
+		r.Post("/phishing/campaigns/{id}/complete",    handleCompleteCampaign(db))
+		r.Get("/phishing/campaigns/{id}/results",      handleGetCampaignResults(db))
 	})
 
 	// Serve React SPA from the embedded filesystem (backend/ui/ at compile time).

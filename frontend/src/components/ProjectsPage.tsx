@@ -11,6 +11,7 @@ import {
   WpscanPanel,
 } from './SessionDetail';
 import HandshakeCapturePanel from './HandshakeCapturePanel';
+import PhishingPanel from './PhishingPanel';
 
 // Fixed virtual session ID for project-page password attacks (not tied to a real session)
 const ATTACKS_VIRTUAL_SESSION = 99999;
@@ -239,6 +240,7 @@ export default function ProjectsPage({ onLogout }: ProjectsPageProps) {
               { id: 13, label: "SqlMap" },
               { id: 14, label: "FeroxBuster" },
               { id: 15, label: "WPScan" },
+              { id: 16, label: "Phishing Campaign" },
             ].map(t => (
               <button
                 key={t.id}
@@ -257,6 +259,7 @@ export default function ProjectsPage({ onLogout }: ProjectsPageProps) {
             {activeAttack === 13 && <SqlmapPanel sessionId={ATTACKS_VIRTUAL_SESSION} />}
             {activeAttack === 14 && <FeroxPanel sessionId={ATTACKS_VIRTUAL_SESSION} />}
             {activeAttack === 15 && <WpscanPanel sessionId={ATTACKS_VIRTUAL_SESSION} />}
+            {activeAttack === 16 && <PhishingPanel />}
           </div>
         </div>
       </div>

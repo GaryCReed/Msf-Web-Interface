@@ -383,6 +383,77 @@ func (db *DB) Migrate() error {
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 		)`,
+		`CREATE TABLE IF NOT EXISTS phish_smtp (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			name         TEXT NOT NULL,
+			from_address TEXT NOT NULL DEFAULT '',
+			from_name    TEXT NOT NULL DEFAULT '',
+			host         TEXT NOT NULL DEFAULT '',
+			port         INTEGER NOT NULL DEFAULT 25,
+			username     TEXT NOT NULL DEFAULT '',
+			password     TEXT NOT NULL DEFAULT '',
+			tls          TEXT NOT NULL DEFAULT 'none',
+			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS phish_templates (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			name       TEXT NOT NULL,
+			subject    TEXT NOT NULL DEFAULT '',
+			html_body  TEXT NOT NULL DEFAULT '',
+			text_body  TEXT NOT NULL DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS phish_pages (
+			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+			name                TEXT NOT NULL,
+			html                TEXT NOT NULL DEFAULT '',
+			redirect_url        TEXT NOT NULL DEFAULT '',
+			capture_credentials INTEGER NOT NULL DEFAULT 0,
+			created_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS phish_groups (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			name       TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS phish_targets (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			group_id   INTEGER NOT NULL,
+			first_name TEXT NOT NULL DEFAULT '',
+			last_name  TEXT NOT NULL DEFAULT '',
+			email      TEXT NOT NULL,
+			position   TEXT NOT NULL DEFAULT '',
+			FOREIGN KEY (group_id) REFERENCES phish_groups(id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS phish_campaigns (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			name         TEXT NOT NULL,
+			status       TEXT NOT NULL DEFAULT 'pending',
+			smtp_id      INTEGER,
+			template_id  INTEGER,
+			page_id      INTEGER,
+			group_id     INTEGER,
+			phish_url    TEXT NOT NULL DEFAULT '',
+			launch_date  DATETIME,
+			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+			completed_at DATETIME
+		)`,
+		`CREATE TABLE IF NOT EXISTS phish_results (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			campaign_id    INTEGER NOT NULL,
+			rid            TEXT NOT NULL UNIQUE,
+			email          TEXT NOT NULL,
+			first_name     TEXT NOT NULL DEFAULT '',
+			last_name      TEXT NOT NULL DEFAULT '',
+			position       TEXT NOT NULL DEFAULT '',
+			status         TEXT NOT NULL DEFAULT 'pending',
+			sent_at        DATETIME,
+			opened_at      DATETIME,
+			clicked_at     DATETIME,
+			submitted_at   DATETIME,
+			submitted_data TEXT NOT NULL DEFAULT '',
+			FOREIGN KEY (campaign_id) REFERENCES phish_campaigns(id) ON DELETE CASCADE
+		)`,
 	}
 	for _, t := range newTables {
 		db.conn.Exec(t) //nolint:errcheck — IF NOT EXISTS means this is safe to ignore
