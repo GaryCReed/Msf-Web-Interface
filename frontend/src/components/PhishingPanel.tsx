@@ -277,6 +277,7 @@ function TemplatesTab() {
   const [editing, setEditing] = useState<EmailTemplate | null>(null);
   const [form, setForm] = useState<Partial<EmailTemplate>>({ name:'', subject:'', html_body:'', text_body:'' });
   const [err, setErr] = useState('');
+  const importRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
     const res = await axios.get('/api/phishing/templates').catch(() => null);
@@ -286,6 +287,35 @@ function TemplatesTab() {
 
   const startEdit = (t: EmailTemplate) => { setEditing(t); setForm(t); setErr(''); };
   const startNew  = () => { setEditing({ id:0 } as EmailTemplate); setForm({ name:'', subject:'', html_body:'', text_body:'' }); setErr(''); };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    const text = await file.text();
+    const name = file.name.replace(/\.[^.]+$/, '');
+    let subject = '';
+    let htmlBody = '';
+    let textBody = '';
+
+    if (file.name.toLowerCase().endsWith('.eml')) {
+      // Parse EML: headers end at first blank line
+      const [headerBlock, ...bodyParts] = text.split(/\r?\n\r?\n/);
+      const body = bodyParts.join('\n\n');
+      const subjectMatch = headerBlock.match(/^Subject:\s*(.+)$/im);
+      if (subjectMatch) subject = subjectMatch[1].trim();
+      // Determine if body is HTML or plain
+      if (/<html/i.test(body)) { htmlBody = body; }
+      else { textBody = body; }
+    } else {
+      // .html / .htm
+      htmlBody = text;
+    }
+
+    setEditing({ id:0 } as EmailTemplate);
+    setForm({ name, subject, html_body: htmlBody, text_body: textBody });
+    setErr('');
+  };
 
   const save = async () => {
     if (!form.name || !form.subject) { setErr('Name and subject are required.'); return; }
@@ -338,7 +368,13 @@ function TemplatesTab() {
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
         <strong>Email Templates</strong>
-        <button style={btn('primary')} onClick={startNew}>+ New Template</button>
+        <div style={{ display:'flex', gap:8 }}>
+          <label style={{ ...btn(), display:'inline-flex', alignItems:'center', cursor:'pointer', padding:'5px 14px' }}>
+            Import File
+            <input ref={importRef} type="file" accept=".html,.htm,.eml" style={{ display:'none' }} onChange={handleImportFile} />
+          </label>
+          <button style={btn('primary')} onClick={startNew}>+ New Template</button>
+        </div>
       </div>
       <table className="rp-table" style={{ fontSize:12 }}>
         <thead><tr><th>Name</th><th>Subject</th><th></th></tr></thead>
@@ -367,6 +403,7 @@ function PagesTab() {
   const [editing, setEditing] = useState<LandingPage | null>(null);
   const [form, setForm] = useState<Partial<LandingPage>>({ name:'', html:'', redirect_url:'', capture_credentials:false });
   const [err, setErr] = useState('');
+  const importRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
     const res = await axios.get('/api/phishing/pages').catch(() => null);
@@ -376,6 +413,17 @@ function PagesTab() {
 
   const startEdit = (p: LandingPage) => { setEditing(p); setForm(p); setErr(''); };
   const startNew  = () => { setEditing({ id:0 } as LandingPage); setForm({ name:'', html:'', redirect_url:'', capture_credentials:false }); setErr(''); };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    const html = await file.text();
+    const name = file.name.replace(/\.[^.]+$/, '');
+    setEditing({ id:0 } as LandingPage);
+    setForm({ name, html, redirect_url:'', capture_credentials:false });
+    setErr('');
+  };
 
   const save = async () => {
     if (!form.name) { setErr('Name is required.'); return; }
@@ -439,7 +487,13 @@ function PagesTab() {
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
         <strong>Landing Pages</strong>
-        <button style={btn('primary')} onClick={startNew}>+ New Page</button>
+        <div style={{ display:'flex', gap:8 }}>
+          <label style={{ ...btn(), display:'inline-flex', alignItems:'center', cursor:'pointer', padding:'5px 14px' }}>
+            Import HTML
+            <input ref={importRef} type="file" accept=".html,.htm" style={{ display:'none' }} onChange={handleImportFile} />
+          </label>
+          <button style={btn('primary')} onClick={startNew}>+ New Page</button>
+        </div>
       </div>
       <table className="rp-table" style={{ fontSize:12 }}>
         <thead><tr><th>Name</th><th>Redirect URL</th><th>Capture Creds</th><th></th></tr></thead>
