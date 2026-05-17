@@ -2,7 +2,7 @@
 
 > **Legal Notice:** This tool is intended **solely for educational purposes** and for use on networks you own or have **explicit written permission** to test. Unauthorised use against systems you do not own or have permission to access is illegal and unethical. The authors accept no liability for misuse.
 
-A Metasploit Pro-style web interface for managing penetration test engagements. Bagaholdin is in a **workable state** — core features function as described, but it is under active development and not production-hardened. Treat it as a learning platform rather than a finished tool.
+A web interface for managing penetration test engagements. Bagaholdin is in a **workable state** — core features function as described, but it is under active development and not production-hardened. Treat it as a learning platform rather than a finished tool.
 
 Each project groups target hosts into sessions, providing a live msfconsole terminal, automated scanning, CVE analysis, post-exploitation tooling, loot extraction, WiFi attack support, and structured report generation — all through a browser.
 
