@@ -104,7 +104,6 @@ func handleStartCME(db *DB) http.HandlerFunc {
 		case "sessions":
 			args = append(args, "--sessions")
 		}
-		args = append(args, "--no-color")
 
 		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 		job := &CMEJob{cancel: cancel}
