@@ -20,6 +20,7 @@ type CMEJob struct {
 	mu     sync.Mutex
 	buf    bytes.Buffer
 	done   bool
+	saved  bool
 	err    string
 	cancel context.CancelFunc
 }
@@ -103,6 +104,7 @@ func handleStartCME(db *DB) http.HandlerFunc {
 		case "sessions":
 			args = append(args, "--sessions")
 		}
+		args = append(args, "--no-color")
 
 		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 		job := &CMEJob{cancel: cancel}
@@ -119,11 +121,18 @@ func handleStartCME(db *DB) http.HandlerFunc {
 			if runErr != nil && ctx.Err() == nil {
 				job.err = runErr.Error()
 			}
-			output := job.buf.String()
+			// Strip any residual ANSI codes before storing/parsing.
+			output := stripANSI(job.buf.String())
+			job.buf.Reset()
+			job.buf.WriteString(output)
 			job.mu.Unlock()
 
 			if saveErr := AppendCMEFindings(sessionID, target, proto, output); saveErr != nil {
 				log.Printf("cme loot save: %v", saveErr)
+			} else {
+				job.mu.Lock()
+				job.saved = true
+				job.mu.Unlock()
 			}
 			cancel()
 		}()
@@ -157,12 +166,13 @@ func handleGetCME(db *DB) http.HandlerFunc {
 		job.mu.Lock()
 		output := job.buf.String()
 		done := job.done
+		saved := job.saved
 		jobErr := job.err
 		job.mu.Unlock()
 
 		outJSON, _ := encodeJSON(output)
 		errJSON, _ := encodeJSON(jobErr)
-		fmt.Fprintf(w, `{"output":%s,"done":%v,"error":%s}`, outJSON, done, errJSON)
+		fmt.Fprintf(w, `{"output":%s,"done":%v,"saved":%v,"error":%s}`, outJSON, done, saved, errJSON)
 	}
 }
 

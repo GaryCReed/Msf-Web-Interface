@@ -920,19 +920,37 @@ func AppendNxcFinding(sessionID int, target string, f struct {
 	return saveLootDocument(doc)
 }
 
-// AppendCMEFindings parses crackmapexec output and saves [+] success lines as loot.
+// AppendCMEFindings parses crackmapexec / nxc output and saves findings as loot.
+// [*] lines are parsed for host info (OS, hostname, domain, signing).
+// [+] lines are saved as auth successes.
+// Falls back to saving the raw output when neither is found so nothing is silently dropped.
 func AppendCMEFindings(sessionID int, target, proto, output string) error {
+	// Strip residual ANSI codes in case --no-color was not honoured.
+	output = stripANSI(output)
+
 	var fields []LootField
+
 	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
 		if strings.Contains(line, "[+]") {
-			val := strings.TrimSpace(line)
-			if val != "" {
-				fields = append(fields, LootField{Name: "Finding", Value: val})
-			}
+			fields = append(fields, LootField{Name: "Auth Success", Value: line})
+		} else if strings.Contains(line, "[*]") {
+			// Host banner line — extract useful parts.
+			// e.g. "SMB  192.168.1.1  445  DC01  [*] Windows Server 2019 x64 (name:DC01) (domain:corp.local) (signing:True)"
+			fields = append(fields, LootField{Name: "Host Info", Value: line})
 		}
 	}
+
+	// Always persist something so the user can see the scan ran.
 	if len(fields) == 0 {
-		return nil
+		trimmed := strings.TrimSpace(output)
+		if trimmed == "" {
+			return nil
+		}
+		fields = append(fields, LootField{Name: "Raw Output", Value: trimmed})
 	}
 
 	lootMu.Lock()
