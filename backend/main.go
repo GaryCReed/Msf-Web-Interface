@@ -669,6 +669,9 @@ func handleVulnScan(db *DB) http.HandlerFunc {
 			if saveErr := db.SaveVulnResults(sessionID, blob); saveErr != nil {
 				log.Printf("vuln results save: %v", saveErr)
 			}
+			if lootErr := AppendVulnScanLoot(sessionID, targetHost, services, osInfo); lootErr != nil {
+				log.Printf("vuln scan loot save: %v", lootErr)
+			}
 		}()
 
 		fmt.Fprint(w, `{"status":"started"}`)

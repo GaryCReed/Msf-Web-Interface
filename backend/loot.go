@@ -969,6 +969,56 @@ func AppendCMEFindings(sessionID int, target, proto, output string) error {
 	return saveLootDocument(doc)
 }
 
+// AppendVulnScanLoot saves the already-parsed vuln scan results (services + OS)
+// as a structured loot item, reusing the ServiceEnumResult and OSInfo types
+// that the vuln scan goroutine already produces.
+func AppendVulnScanLoot(sessionID int, target string, services []ServiceEnumResult, osInfo *OSInfo) error {
+	if len(services) == 0 && osInfo == nil {
+		return nil
+	}
+
+	var fields []LootField
+
+	if osInfo != nil && osInfo.Name != "" {
+		osLabel := osInfo.Name
+		if osInfo.Accuracy > 0 {
+			osLabel += fmt.Sprintf(" (%d%% confidence)", osInfo.Accuracy)
+		}
+		fields = append(fields, LootField{Name: "OS", Value: osLabel})
+	}
+
+	for _, svc := range services {
+		portLabel := fmt.Sprintf("%d/%s", svc.Port, svc.Protocol)
+		value := svc.Name
+		if svc.Product != "" {
+			value += " — " + svc.Product
+			if svc.Version != "" {
+				value += " " + svc.Version
+			}
+		}
+		fields = append(fields, LootField{Name: portLabel, Value: value})
+	}
+
+	if len(fields) == 0 {
+		return nil
+	}
+
+	lootMu.Lock()
+	defer lootMu.Unlock()
+
+	doc := loadLootDocument(sessionID)
+	if doc == nil {
+		doc = &LootDocument{SessionID: sessionID, Target: target}
+	}
+	doc.Items = append(doc.Items, LootItem{
+		Type:      "nmap_scan",
+		Source:    fmt.Sprintf("nmap -sV -O --script=vuln,vulners %s", target),
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Fields:    fields,
+	})
+	return saveLootDocument(doc)
+}
+
 // AppendNmapLoot parses nmap text output and saves open ports, services,
 // versions, and OS detection as a structured loot item.
 func AppendNmapLoot(sessionID int, target, args, output string) error {
