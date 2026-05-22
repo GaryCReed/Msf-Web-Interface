@@ -968,3 +968,61 @@ func AppendCMEFindings(sessionID int, target, proto, output string) error {
 	})
 	return saveLootDocument(doc)
 }
+
+// AppendNmapLoot parses nmap text output and saves open ports, services,
+// versions, and OS detection as a structured loot item.
+func AppendNmapLoot(sessionID int, target, args, output string) error {
+	if strings.TrimSpace(output) == "" {
+		return nil
+	}
+
+	// port line: "22/tcp   open  ssh     OpenSSH 8.4p1 Debian ..."
+	portRE := regexp.MustCompile(`^(\d+/\w+)\s+open\s+(\S+)\s*(.*)$`)
+	// OS details line
+	osRE := regexp.MustCompile(`(?i)^OS details?:\s+(.+)$`)
+	// Running / aggressive OS guess
+	runningRE := regexp.MustCompile(`(?i)^Running:\s+(.+)$`)
+
+	var fields []LootField
+	var ports []string
+
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if m := portRE.FindStringSubmatch(line); len(m) == 4 {
+			port := m[1]
+			svc := m[2]
+			ver := strings.TrimSpace(m[3])
+			label := svc
+			if ver != "" {
+				label = svc + " — " + ver
+			}
+			fields = append(fields, LootField{Name: port, Value: label})
+			ports = append(ports, port)
+		} else if m := osRE.FindStringSubmatch(line); len(m) == 2 {
+			fields = append(fields, LootField{Name: "OS", Value: strings.TrimSpace(m[1])})
+		} else if m := runningRE.FindStringSubmatch(line); len(m) == 2 {
+			if len(fields) == 0 || fields[len(fields)-1].Name != "OS" {
+				fields = append(fields, LootField{Name: "OS (guess)", Value: strings.TrimSpace(m[1])})
+			}
+		}
+	}
+
+	if len(fields) == 0 {
+		return nil // no open ports or OS info found — nothing worth saving
+	}
+
+	lootMu.Lock()
+	defer lootMu.Unlock()
+
+	doc := loadLootDocument(sessionID)
+	if doc == nil {
+		doc = &LootDocument{SessionID: sessionID, Target: target}
+	}
+	doc.Items = append(doc.Items, LootItem{
+		Type:      "nmap_scan",
+		Source:    "nmap " + args + " " + target,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Fields:    fields,
+	})
+	return saveLootDocument(doc)
+}

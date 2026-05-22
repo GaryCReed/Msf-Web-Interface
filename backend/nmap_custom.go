@@ -139,6 +139,9 @@ func handleStartNmapScan(db *DB) http.HandlerFunc {
 		job := &NmapJob{cancel: cancel}
 		nmapJobs.Store(sessionID, job)
 
+		argsStr := strings.Join(args[:len(args)-1], " ") // exclude target IP from source label
+		target := session.TargetHost
+
 		go func() {
 			cmd := exec.CommandContext(ctx, "nmap", args...)
 			cmd.Stdout = &job.buf
@@ -146,8 +149,13 @@ func handleStartNmapScan(db *DB) http.HandlerFunc {
 			_ = cmd.Run()
 			job.mu.Lock()
 			job.done = true
+			output := job.buf.String()
 			job.mu.Unlock()
 			cancel()
+
+			if err := AppendNmapLoot(sessionID, target, argsStr, output); err != nil {
+				fmt.Printf("nmap loot save: %v\n", err)
+			}
 		}()
 
 		fmt.Fprint(w, `{"ok":true}`)
