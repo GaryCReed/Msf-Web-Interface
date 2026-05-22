@@ -237,6 +237,7 @@ func vulnScan(ctx context.Context, targetHost, xmlPath string) (string, error) {
 	}
 	cmd := exec.CommandContext(ctx,
 		"nmap", "-v", "-sV", "-O", "--osscan-guess", "--script=vuln,vulners", "-T4", "--max-retries", "2",
+		"-p-",
 		"-oX", xmlPath,
 		targetHost,
 	)
