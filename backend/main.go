@@ -251,6 +251,12 @@ func main() {
 		r.Delete("/phishing/campaigns/{id}",           handleDeleteCampaign(db))
 		r.Post("/phishing/campaigns/{id}/complete",    handleCompleteCampaign(db))
 		r.Get("/phishing/campaigns/{id}/results",      handleGetCampaignResults(db))
+
+		// Local nc listeners
+		r.Get("/listeners",           handleListListeners())
+		r.Post("/listeners",          handleStartListener())
+		r.Get("/listeners/{port}",    handleGetListener())
+		r.Delete("/listeners/{port}", handleStopListener())
 	})
 
 	// Serve React SPA from the embedded filesystem (backend/ui/ at compile time).
