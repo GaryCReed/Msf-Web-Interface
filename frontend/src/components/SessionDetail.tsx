@@ -4234,12 +4234,12 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
   const [msfSessions, setMsfSessions]               = useState<MsfSession[]>([]);
   const [msfSessionsLoading, setMsfSessionsLoading] = useState(false);
 
-  // Local nc listener state
-  const [listenerPort, setListenerPort]       = useState('4444');
-  const [listenerLoading, setListenerLoading] = useState(false);
-  const [listenerOutput, setListenerOutput]   = useState('');
-  const [listenerDone, setListenerDone]       = useState(true);
-  const listenerPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // MSF multi/handler state
+  const [handlerPayload, setHandlerPayload]   = useState('windows/x64/meterpreter/reverse_tcp');
+  const [handlerLhost, setHandlerLhost]       = useState('');
+  const [handlerLport, setHandlerLport]       = useState('4444');
+  const [handlerLoading, setHandlerLoading]   = useState(false);
+  const [handlerStatus, setHandlerStatus]     = useState('');
   const msfLoadingRef = useRef(false); // synchronous guard against double-fire
   const upgradingRef = useRef<Set<string>>(new Set());
   // Tracks which MSF session is currently entered interactively (sessions -i <id>).
@@ -5230,69 +5230,90 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
                 </div>
               </div>
 
-              {/* ── Local Listener ── */}
+              {/* ── exploit/multi/handler ── */}
               <div className="create-listener-section">
-                <div className="listener-form-inline">
-                  <label className="listener-inline-label">Local Listener</label>
-                  <span className="listener-inline-cmd">nc -lvnp</span>
-                  <input
-                    type="text"
-                    className="listener-input listener-input-short"
-                    placeholder="4444"
-                    value={listenerPort}
-                    onChange={e => setListenerPort(e.target.value)}
-                    disabled={!listenerDone}
-                  />
-                  {listenerDone ? (
+                <div className="listener-handler-form">
+                  <div className="listener-form-row">
+                    <label>Payload</label>
+                    <select
+                      className="listener-select"
+                      value={handlerPayload}
+                      onChange={e => setHandlerPayload(e.target.value)}
+                    >
+                      {MSFVENOM_PAYLOADS.map(g => (
+                        <optgroup key={g.group} label={g.group}>
+                          {g.payloads.map(p => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="listener-form-row">
+                    <label>LHOST</label>
+                    <input
+                      type="text"
+                      className="listener-input"
+                      placeholder="e.g. 192.168.1.10"
+                      value={handlerLhost}
+                      onChange={e => setHandlerLhost(e.target.value)}
+                    />
+                    {localIfaces.length > 0 && (
+                      <select
+                        className="listener-iface-select"
+                        value=""
+                        onChange={e => { if (e.target.value) setHandlerLhost(e.target.value); }}
+                      >
+                        <option value="">pick iface…</option>
+                        {localIfaces.map(i => (
+                          <option key={i.name} value={i.ip}>{i.name} ({i.ip})</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  <div className="listener-form-row">
+                    <label>LPORT</label>
+                    <input
+                      type="text"
+                      className="listener-input listener-input-short"
+                      placeholder="4444"
+                      value={handlerLport}
+                      onChange={e => setHandlerLport(e.target.value)}
+                    />
+                  </div>
+                  <div className="listener-form-row">
                     <button
                       className="btn-run-scan"
-                      disabled={listenerLoading || !listenerPort}
+                      disabled={handlerLoading || !handlerLhost || !handlerLport}
                       onClick={async () => {
-                        setListenerLoading(true);
-                        setListenerOutput('');
+                        setHandlerLoading(true);
+                        setHandlerStatus('');
                         try {
-                          await axios.post('/api/listeners', { port: listenerPort });
-                          setListenerDone(false);
-                          if (listenerPollRef.current) clearInterval(listenerPollRef.current);
-                          listenerPollRef.current = setInterval(async () => {
-                            try {
-                              const res = await axios.get(`/api/listeners/${listenerPort}`);
-                              setListenerOutput(res.data.output || '');
-                              if (res.data.done) {
-                                setListenerDone(true);
-                                if (listenerPollRef.current) clearInterval(listenerPollRef.current);
-                              }
-                            } catch {}
-                          }, 1000);
-                        } catch (err: any) {
-                          setListenerOutput(err?.response?.data?.error || 'Failed to start listener');
-                          setListenerDone(true);
+                          await ensureMsfPrompt();
+                          await sendShellCmd('use exploit/multi/handler');
+                          await sendShellCmd(`set PAYLOAD ${handlerPayload}`);
+                          await sendShellCmd(`set LHOST ${handlerLhost}`);
+                          await sendShellCmd(`set LPORT ${handlerLport}`);
+                          await sendShellCmd('run -j');
+                          setHandlerStatus('Handler started — waiting for connection…');
+                          await new Promise(r => setTimeout(r, 1500));
+                          await loadMsfSessions();
+                        } catch {
+                          setHandlerStatus('Failed. Is the Console tab open?');
                         } finally {
-                          setListenerLoading(false);
+                          setHandlerLoading(false);
                         }
                       }}
                     >
-                      {listenerLoading ? <><span className="btn-spinner" /> Starting…</> : 'Start'}
+                      {handlerLoading ? <><span className="btn-spinner" /> Starting…</> : 'Start Handler'}
                     </button>
-                  ) : (
-                    <button
-                      className="btn-kill-session"
-                      onClick={async () => {
-                        if (listenerPollRef.current) clearInterval(listenerPollRef.current);
-                        await axios.delete(`/api/listeners/${listenerPort}`).catch(() => {});
-                        setListenerDone(true);
-                      }}
-                    >
-                      Stop
-                    </button>
-                  )}
-                  {!listenerDone && (
-                    <span className="listener-running-badge">listening…</span>
-                  )}
+                    {handlerStatus && (
+                      <span className={`listener-status-inline ${handlerStatus.startsWith('Failed') ? 'listener-status-error' : ''}`}>
+                        {handlerStatus}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                {listenerOutput && (
-                  <pre className="listener-output">{listenerOutput}</pre>
-                )}
               </div>
 
               <div className="msf-sessions-body">

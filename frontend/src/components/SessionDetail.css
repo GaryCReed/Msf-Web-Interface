@@ -1594,32 +1594,34 @@
 
 .btn-kill-session:hover { background: rgba(255,56,96,0.22); box-shadow: var(--glow-red); }
 
-/* ── Local Listener section ── */
+/* ── exploit/multi/handler section ── */
 .create-listener-section {
   border-bottom: 1px solid var(--border-dim);
-  padding: 10px 16px;
+  padding: 12px 16px;
 }
 
-.listener-form-inline {
+.listener-handler-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 640px;
+}
+
+.listener-form-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
 }
 
-.listener-inline-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.listener-inline-cmd {
-  font-family: var(--font-mono);
+.listener-form-row label {
+  width: 56px;
   font-size: 12px;
   color: var(--text-dim);
+  flex-shrink: 0;
 }
 
-.listener-input {
+.listener-select {
+  flex: 1;
   background: var(--bg-input);
   border: 1px solid var(--border-dim);
   border-radius: var(--radius-sm);
@@ -1628,27 +1630,32 @@
   padding: 5px 8px;
 }
 
-.listener-input-short { width: 80px; }
-
-.listener-running-badge {
-  font-size: 11px;
-  color: var(--green);
-  font-family: var(--font-mono);
-}
-
-.listener-output {
-  margin-top: 8px;
-  background: var(--bg-surface);
+.listener-input {
+  flex: 1;
+  background: var(--bg-input);
   border: 1px solid var(--border-dim);
   border-radius: var(--radius-sm);
-  padding: 10px 12px;
-  font-family: var(--font-mono);
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+.listener-input-short { flex: none; width: 80px; }
+
+.listener-iface-select {
+  background: var(--bg-input);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 4px 6px;
+}
+
+.listener-status-inline {
   font-size: 12px;
   color: var(--green);
-  white-space: pre-wrap;
-  max-height: 300px;
-  overflow-y: auto;
 }
+.listener-status-error { color: var(--red); }
 
 /* ── Hashcat Panel ── */
 .hc-panel {
