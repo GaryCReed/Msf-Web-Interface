@@ -103,21 +103,41 @@
 
 .sd-edit-btn {
   background: none;
-  border: none;
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-sm);
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 13px;
-  padding: 2px 4px;
-  line-height: 1;
-  opacity: 0.6;
+  font-size: 11px;
+  padding: 2px 8px;
+  margin-left: 4px;
 }
-.sd-edit-btn:hover { color: var(--text-primary); opacity: 1; }
+.sd-edit-btn:hover { color: var(--text-primary); border-color: var(--border); }
 
-.sd-edit-form {
+/* ── Edit bar (below header) ── */
+.sd-edit-bar {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-base);
+  padding: 10px 20px;
+  flex-shrink: 0;
+}
+
+.sd-edit-bar-inner {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: flex-end;
+  gap: 16px;
   flex-wrap: wrap;
+}
+
+.sd-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sd-edit-field label {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 500;
 }
 
 .sd-edit-input {
@@ -125,13 +145,18 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: 12px;
-  padding: 4px 8px;
-  width: 160px;
+  font-size: 13px;
+  padding: 6px 10px;
+  width: 200px;
 }
-.sd-edit-host  { width: 130px; }
-.sd-edit-label { width: 110px; }
-.sd-edit-save  { padding: 4px 12px; font-size: 12px; }
+.sd-edit-input:focus { outline: none; border-color: var(--cyan); }
+
+.sd-edit-bar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-bottom: 2px;
+}
 
 .sd-loading {
   font-family: var(--font-mono);

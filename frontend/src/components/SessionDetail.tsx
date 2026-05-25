@@ -4854,36 +4854,16 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
         <div className="sd-header-left">
           <Link to={session?.project_id ? `/project/${session.project_id}` : '/'} className="sd-back">← Overview</Link>
           {session ? (
-            editingSession ? (
-              <div className="sd-edit-form">
-                <input className="sd-edit-input" placeholder="Session name" value={editName} onChange={e => setEditName(e.target.value)} />
-                <input className="sd-edit-input sd-edit-host" placeholder="Target IP / host" value={editHost} onChange={e => setEditHost(e.target.value)} />
-                <input className="sd-edit-input sd-edit-label" placeholder="Label (e.g. DC01)" value={editLabel} onChange={e => setEditLabel(e.target.value)} />
-                <button className="btn-run-scan sd-edit-save" disabled={editSaving || !editName || !editHost}
-                  onClick={async () => {
-                    setEditSaving(true);
-                    try {
-                      const res = await axios.put(`/api/sessions/${sessionId}`, { session_name: editName, target_host: editHost, host_label: editLabel });
-                      setSession(prev => prev ? { ...prev, ...res.data.session } : prev);
-                      setEditingSession(false);
-                    } catch {} finally { setEditSaving(false); }
-                  }}>
-                  {editSaving ? 'Saving…' : 'Save'}
-                </button>
-                <button className="btn-background-session" onClick={() => setEditingSession(false)}>Cancel</button>
-              </div>
-            ) : (
-              <div className="sd-title">
-                <span className={`status-dot ${session.is_running ? 'running' : 'idle'}`} />
-                <span className="sd-name">{session.session_name}</span>
-                {session.host_label && <span className="sd-host-label">{session.host_label}</span>}
-                <span className="sd-host">{session.target_host}</span>
-                <button className="sd-edit-btn" title="Edit session details"
-                  onClick={() => { setEditName(session.session_name); setEditHost(session.target_host); setEditLabel(session.host_label || ''); setEditingSession(true); }}>
-                  ✎
-                </button>
-              </div>
-            )
+            <div className="sd-title">
+              <span className={`status-dot ${session.is_running ? 'running' : 'idle'}`} />
+              <span className="sd-name">{session.session_name}</span>
+              {session.host_label && <span className="sd-host-label">{session.host_label}</span>}
+              <span className="sd-host">{session.target_host}</span>
+              <button className="sd-edit-btn" title="Edit session details"
+                onClick={() => { setEditName(session.session_name); setEditHost(session.target_host); setEditLabel(session.host_label || ''); setEditingSession(e => !e); }}>
+                Edit
+              </button>
+            </div>
           ) : (
             <span className="sd-loading">Loading session…</span>
           )}
@@ -4902,6 +4882,44 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
           <button className="logout-btn" onClick={onLogout}>Logout</button>
         </div>
       </header>
+
+      {editingSession && session && (
+        <div className="sd-edit-bar">
+          <div className="sd-edit-bar-inner">
+            <div className="sd-edit-field">
+              <label>Session name</label>
+              <input className="sd-edit-input" value={editName} onChange={e => setEditName(e.target.value)} placeholder="e.g. Target 1" />
+            </div>
+            <div className="sd-edit-field">
+              <label>Target IP</label>
+              <input className="sd-edit-input" value={editHost} onChange={e => setEditHost(e.target.value)} placeholder="e.g. 192.168.1.10" />
+            </div>
+            <div className="sd-edit-field">
+              <label>Label</label>
+              <input className="sd-edit-input" value={editLabel} onChange={e => setEditLabel(e.target.value)} placeholder="e.g. DC01, Web Server" />
+            </div>
+            <div className="sd-edit-bar-actions">
+              <button className="btn-run-scan"
+                disabled={editSaving || !editName || !editHost}
+                onClick={async () => {
+                  setEditSaving(true);
+                  try {
+                    const res = await axios.put(`/api/sessions/${sessionId}`, { session_name: editName, target_host: editHost, host_label: editLabel });
+                    setSession(prev => prev ? { ...prev, ...res.data.session } : prev);
+                    setEditingSession(false);
+                  } catch {
+                    // keep form open on error
+                  } finally {
+                    setEditSaving(false);
+                  }
+                }}>
+                {editSaving ? 'Saving…' : 'Save'}
+              </button>
+              <button className="btn-background-session" onClick={() => setEditingSession(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="sd-body">
         <aside className="sd-sidebar">
