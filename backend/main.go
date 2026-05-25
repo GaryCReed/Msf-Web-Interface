@@ -263,16 +263,21 @@ func main() {
 	// Serve React SPA from the embedded filesystem (backend/ui/ at compile time).
 	sub, _ := fs.Sub(staticFiles, "ui")
 	fileServer := http.FileServer(http.FS(sub))
+	serveIndexHTML := func(w http.ResponseWriter) {
+		data, _ := fs.ReadFile(sub, "index.html")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Write(data)
+	}
 	router.Handle("/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		if path == "" {
-			path = "index.html"
+			serveIndexHTML(w)
+			return
 		}
 		if _, err := fs.Stat(sub, path); err != nil {
 			// SPA fallback: unknown routes get index.html so React Router handles them
-			data, _ := fs.ReadFile(sub, "index.html")
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.Write(data)
+			serveIndexHTML(w)
 			return
 		}
 		fileServer.ServeHTTP(w, r)
