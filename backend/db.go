@@ -33,6 +33,7 @@ type Session struct {
 	ProjectID   *int   `json:"project_id,omitempty"`
 	SessionName string `json:"session_name"`
 	TargetHost  string `json:"target_host"`
+	HostLabel   string `json:"host_label"`
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
 }
@@ -365,6 +366,8 @@ func (db *DB) Migrate() error {
 	// Ensure tables added after initial release exist in older databases.
 	// These are idempotent — CREATE TABLE IF NOT EXISTS is safe to run repeatedly.
 	newTables := []string{
+		// ALTER TABLE is idempotent here: error is silently ignored if the column already exists.
+		`ALTER TABLE sessions ADD COLUMN host_label TEXT NOT NULL DEFAULT ''`,
 		`CREATE TABLE IF NOT EXISTS loot_data (
 			session_id INTEGER PRIMARY KEY,
 			data       TEXT NOT NULL,
@@ -769,9 +772,9 @@ func (db *DB) CreateSession(userID int, sessionName, targetHost string) (*Sessio
 
 	session := &Session{}
 	err := db.conn.QueryRow(
-		db.rebind("INSERT INTO sessions (user_id, session_name, target_host) VALUES (?, ?, ?) RETURNING id, user_id, session_name, target_host, created_at, updated_at"),
+		db.rebind("INSERT INTO sessions (user_id, session_name, target_host) VALUES (?, ?, ?) RETURNING id, user_id, session_name, target_host, host_label, created_at, updated_at"),
 		userID, sessionName, targetHost,
-	).Scan(&session.ID, &session.UserID, &session.SessionName, &session.TargetHost, &session.CreatedAt, &session.UpdatedAt)
+	).Scan(&session.ID, &session.UserID, &session.SessionName, &session.TargetHost, &session.HostLabel, &session.CreatedAt, &session.UpdatedAt)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
@@ -824,9 +827,49 @@ func (db *DB) GetSession(sessionID, userID int) (*Session, error) {
 	session := &Session{}
 	var pid sql.NullInt64
 	err := db.conn.QueryRow(
-		db.rebind("SELECT id, user_id, project_id, session_name, target_host, created_at, updated_at FROM sessions WHERE id = ? AND user_id = ?"),
+		db.rebind("SELECT id, user_id, project_id, session_name, target_host, host_label, created_at, updated_at FROM sessions WHERE id = ? AND user_id = ?"),
 		sessionID, userID,
-	).Scan(&session.ID, &session.UserID, &pid, &session.SessionName, &session.TargetHost, &session.CreatedAt, &session.UpdatedAt)
+	).Scan(&session.ID, &session.UserID, &pid, &session.SessionName, &session.TargetHost, &session.HostLabel, &session.CreatedAt, &session.UpdatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("session not found")
+		}
+		return nil, fmt.Errorf("database error: %w", err)
+	}
+	if pid.Valid {
+		id := int(pid.Int64)
+		session.ProjectID = &id
+	}
+	return session, nil
+}
+
+// UpdateSession updates session_name, target_host, and host_label for an existing session.
+func (db *DB) UpdateSession(sessionID, userID int, sessionName, targetHost, hostLabel string) (*Session, error) {
+	if db.isMemory {
+		db.memory.mutex.Lock()
+		for uid, list := range db.memory.sessions {
+			for i, s := range list {
+				if s.ID == sessionID && s.UserID == userID {
+					list[i].SessionName = sessionName
+					list[i].TargetHost = targetHost
+					list[i].HostLabel = hostLabel
+					db.memory.sessions[uid] = list
+					updated := list[i]
+					db.memory.mutex.Unlock()
+					return &updated, nil
+				}
+			}
+		}
+		db.memory.mutex.Unlock()
+		return nil, fmt.Errorf("session not found")
+	}
+
+	session := &Session{}
+	var pid sql.NullInt64
+	err := db.conn.QueryRow(
+		db.rebind("UPDATE sessions SET session_name=?, target_host=?, host_label=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? RETURNING id, user_id, project_id, session_name, target_host, host_label, created_at, updated_at"),
+		sessionName, targetHost, hostLabel, sessionID, userID,
+	).Scan(&session.ID, &session.UserID, &pid, &session.SessionName, &session.TargetHost, &session.HostLabel, &session.CreatedAt, &session.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("session not found")
@@ -863,7 +906,7 @@ func (db *DB) GetUserSessions(userID int) ([]Session, error) {
 	}
 
 	rows, err := db.conn.Query(
-		db.rebind("SELECT id, user_id, project_id, session_name, target_host, created_at, updated_at FROM sessions WHERE user_id = ? ORDER BY created_at DESC"),
+		db.rebind("SELECT id, user_id, project_id, session_name, target_host, host_label, created_at, updated_at FROM sessions WHERE user_id = ? ORDER BY created_at DESC"),
 		userID,
 	)
 	if err != nil {
@@ -875,7 +918,7 @@ func (db *DB) GetUserSessions(userID int) ([]Session, error) {
 	for rows.Next() {
 		var session Session
 		var pid sql.NullInt64
-		if err := rows.Scan(&session.ID, &session.UserID, &pid, &session.SessionName, &session.TargetHost, &session.CreatedAt, &session.UpdatedAt); err != nil {
+		if err := rows.Scan(&session.ID, &session.UserID, &pid, &session.SessionName, &session.TargetHost, &session.HostLabel, &session.CreatedAt, &session.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan error: %w", err)
 		}
 		if pid.Valid {
@@ -895,7 +938,7 @@ func (db *DB) GetProjectSessions(projectID, userID int) ([]Session, error) {
 	}
 
 	rows, err := db.conn.Query(
-		db.rebind(`SELECT s.id, s.user_id, s.project_id, s.session_name, s.target_host, s.created_at, s.updated_at
+		db.rebind(`SELECT s.id, s.user_id, s.project_id, s.session_name, s.target_host, s.host_label, s.created_at, s.updated_at
 		FROM sessions s
 		JOIN projects p ON s.project_id = p.id
 		WHERE s.project_id = ? AND p.user_id = ?
@@ -911,7 +954,7 @@ func (db *DB) GetProjectSessions(projectID, userID int) ([]Session, error) {
 	for rows.Next() {
 		var session Session
 		var pid sql.NullInt64
-		if err := rows.Scan(&session.ID, &session.UserID, &pid, &session.SessionName, &session.TargetHost, &session.CreatedAt, &session.UpdatedAt); err != nil {
+		if err := rows.Scan(&session.ID, &session.UserID, &pid, &session.SessionName, &session.TargetHost, &session.HostLabel, &session.CreatedAt, &session.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan error: %w", err)
 		}
 		if pid.Valid {
@@ -935,9 +978,9 @@ func (db *DB) CreateProjectSession(userID, projectID int, sessionName, targetHos
 	session := &Session{}
 	var pid sql.NullInt64
 	err := db.conn.QueryRow(
-		db.rebind("INSERT INTO sessions (user_id, project_id, session_name, target_host) VALUES (?, ?, ?, ?) RETURNING id, user_id, project_id, session_name, target_host, created_at, updated_at"),
+		db.rebind("INSERT INTO sessions (user_id, project_id, session_name, target_host) VALUES (?, ?, ?, ?) RETURNING id, user_id, project_id, session_name, target_host, host_label, created_at, updated_at"),
 		userID, projectID, sessionName, targetHost,
-	).Scan(&session.ID, &session.UserID, &pid, &session.SessionName, &session.TargetHost, &session.CreatedAt, &session.UpdatedAt)
+	).Scan(&session.ID, &session.UserID, &pid, &session.SessionName, &session.TargetHost, &session.HostLabel, &session.CreatedAt, &session.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}

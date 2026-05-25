@@ -150,6 +150,7 @@ func main() {
 		r.Get("/sessions", handleGetSessions(db))
 		r.Post("/sessions", handleCreateSession(db))
 		r.Get("/sessions/{id}", handleGetSession(db))
+		r.Put("/sessions/{id}", handleUpdateSession(db))
 		r.Delete("/sessions/{id}", handleDeleteSession(db))
 		r.Post("/exploits/run", handleRunExploit(db))
 		r.Post("/scan", handleScan)
@@ -599,6 +600,47 @@ func handleGetSession(db *DB) http.HandlerFunc {
 
 		result := SessionWithStatus{Session: *session, IsRunning: GetExecutor(sessionID) != nil}
 		data, _ := encodeJSON(result)
+		fmt.Fprintf(w, `{"session":%s}`, data)
+	}
+}
+
+func handleUpdateSession(db *DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		sessionID, err := strconv.Atoi(chi.URLParam(r, "id"))
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":"invalid session id"}`)
+			return
+		}
+
+		claims, err := validateToken(extractToken(r))
+		if err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			fmt.Fprint(w, `{"error":"Invalid token"}`)
+			return
+		}
+
+		var req struct {
+			SessionName string `json:"session_name"`
+			TargetHost  string `json:"target_host"`
+			HostLabel   string `json:"host_label"`
+		}
+		if err := parseJSON(r, &req); err != nil || req.SessionName == "" || req.TargetHost == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":"session_name and target_host are required"}`)
+			return
+		}
+
+		session, err := db.UpdateSession(sessionID, claims.UserID, req.SessionName, req.TargetHost, req.HostLabel)
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprintf(w, `{"error":"%s"}`, err.Error())
+			return
+		}
+
+		data, _ := encodeJSON(session)
 		fmt.Fprintf(w, `{"session":%s}`, data)
 	}
 }

@@ -12,6 +12,7 @@ interface Session {
   id: number;
   session_name: string;
   target_host: string;
+  host_label: string;
   is_running: boolean;
   project_id?: number;
 }
@@ -4197,6 +4198,13 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
   const [activeAction, setActiveAction] = useState<number | null>(initialTab === 'loot' ? 9 : null);
   const [localIfaces, setLocalIfaces]   = useState<{ name: string; cidr: string; ip: string }[]>([]);
 
+  // Session header edit state
+  const [editingSession, setEditingSession]     = useState(false);
+  const [editName, setEditName]                 = useState('');
+  const [editHost, setEditHost]                 = useState('');
+  const [editLabel, setEditLabel]               = useState('');
+  const [editSaving, setEditSaving]             = useState(false);
+
   // Console is not shown on the Loot tab (action 9) — no need to pre-collapse it.
   const [consoleCollapsed, setConsoleCollapsed] = useState(false);
   const [actionCollapsed, setActionCollapsed]   = useState(false);
@@ -4846,11 +4854,36 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
         <div className="sd-header-left">
           <Link to={session?.project_id ? `/project/${session.project_id}` : '/'} className="sd-back">← Overview</Link>
           {session ? (
-            <div className="sd-title">
-              <span className={`status-dot ${session.is_running ? 'running' : 'idle'}`} />
-              <span className="sd-name">{session.session_name}</span>
-              <span className="sd-host">{session.target_host}</span>
-            </div>
+            editingSession ? (
+              <div className="sd-edit-form">
+                <input className="sd-edit-input" placeholder="Session name" value={editName} onChange={e => setEditName(e.target.value)} />
+                <input className="sd-edit-input sd-edit-host" placeholder="Target IP / host" value={editHost} onChange={e => setEditHost(e.target.value)} />
+                <input className="sd-edit-input sd-edit-label" placeholder="Label (e.g. DC01)" value={editLabel} onChange={e => setEditLabel(e.target.value)} />
+                <button className="btn-run-scan sd-edit-save" disabled={editSaving || !editName || !editHost}
+                  onClick={async () => {
+                    setEditSaving(true);
+                    try {
+                      const res = await axios.put(`/api/sessions/${sessionId}`, { session_name: editName, target_host: editHost, host_label: editLabel });
+                      setSession(prev => prev ? { ...prev, ...res.data.session } : prev);
+                      setEditingSession(false);
+                    } catch {} finally { setEditSaving(false); }
+                  }}>
+                  {editSaving ? 'Saving…' : 'Save'}
+                </button>
+                <button className="btn-background-session" onClick={() => setEditingSession(false)}>Cancel</button>
+              </div>
+            ) : (
+              <div className="sd-title">
+                <span className={`status-dot ${session.is_running ? 'running' : 'idle'}`} />
+                <span className="sd-name">{session.session_name}</span>
+                {session.host_label && <span className="sd-host-label">{session.host_label}</span>}
+                <span className="sd-host">{session.target_host}</span>
+                <button className="sd-edit-btn" title="Edit session details"
+                  onClick={() => { setEditName(session.session_name); setEditHost(session.target_host); setEditLabel(session.host_label || ''); setEditingSession(true); }}>
+                  ✎
+                </button>
+              </div>
+            )
           ) : (
             <span className="sd-loading">Loading session…</span>
           )}
@@ -4897,6 +4930,9 @@ export default function SessionDetail({ onLogout }: SessionDetailProps) {
                 }}
               >
                 {action.label}
+                {action.id === 3 && cveResults.length > 0 && (
+                  <span className="cve-count-badge">{cveResults.length}</span>
+                )}
               </button>
               );
             })}
