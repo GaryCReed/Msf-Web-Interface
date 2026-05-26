@@ -1076,3 +1076,51 @@ func AppendNmapLoot(sessionID int, target, args, output string) error {
 	})
 	return saveLootDocument(doc)
 }
+
+// AppendFeroxLoot saves feroxbuster results to loot.
+// Only 200-status URLs and URLs that look like files (have an extension in
+// the final path segment) are recorded.
+func AppendFeroxLoot(sessionID int, target string, found []FeroxResult) error {
+	hasExt := regexp.MustCompile(`\.[a-zA-Z0-9]{1,10}$`)
+
+	var fields []LootField
+	seen := map[string]bool{}
+	for _, r := range found {
+		if seen[r.URL] {
+			continue
+		}
+		seen[r.URL] = true
+
+		isOK := r.Status == 200
+		isFile := hasExt.MatchString(strings.Split(r.URL, "?")[0]) // strip query string before checking
+
+		if !isOK && !isFile {
+			continue
+		}
+
+		label := fmt.Sprintf("%d %s", r.Status, r.Method)
+		if r.Size > 0 {
+			label += fmt.Sprintf(" (%d bytes)", r.Size)
+		}
+		fields = append(fields, LootField{Name: r.URL, Value: label})
+	}
+
+	if len(fields) == 0 {
+		return nil
+	}
+
+	lootMu.Lock()
+	defer lootMu.Unlock()
+
+	doc := loadLootDocument(sessionID)
+	if doc == nil {
+		doc = &LootDocument{SessionID: sessionID, Target: target}
+	}
+	doc.Items = append(doc.Items, LootItem{
+		Type:      "web_enum",
+		Source:    "feroxbuster → " + target,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Fields:    fields,
+	})
+	return saveLootDocument(doc)
+}

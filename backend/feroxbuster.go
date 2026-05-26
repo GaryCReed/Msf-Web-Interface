@@ -398,6 +398,23 @@ func saveFeroxToDB(db *DB, sessionID int, job *FeroxJob) {
 	if err := db.SaveFeroxResults(sessionID, blob); err != nil {
 		log.Printf("ferox results save: %v", err)
 	}
+
+	if len(found) > 0 {
+		// Derive origin (scheme + host) from the first found URL.
+		target := found[0].URL
+		for _, pfx := range []string{"https://", "http://"} {
+			if strings.HasPrefix(target, pfx) {
+				rest := target[len(pfx):]
+				if i := strings.IndexByte(rest, '/'); i >= 0 {
+					target = pfx + rest[:i]
+				}
+				break
+			}
+		}
+		if err := AppendFeroxLoot(sessionID, target, found); err != nil {
+			log.Printf("ferox loot save: %v", err)
+		}
+	}
 }
 
 func runFerox(job *FeroxJob, args []string, sessionID int, db *DB) {
